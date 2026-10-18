@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "create-saydo-app": "./index.mjs"
+    "create-saydo-app": "index.mjs"
   },
   "files": [
     "index.mjs",
