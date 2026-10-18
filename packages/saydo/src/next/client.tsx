@@ -22,4 +22,4 @@ export function SaydoProvider(props: Omit<SaydoProviderProps, 'router' | 'pathna
   return <BaseProvider {...props} router={adapter} pathname={pathname} />;
 }
 
-export { useAction, useCapability, useSaydoContext, useSaydo, useSaydoGuard, usePasskeys, SaydoApproval, ConfirmCard, AssistantUI } from '../react/index';
+export { useAction, useCapability, useSaydoContext, useSaydo, useSaydoGuard, usePasskeys, useConversations, SaydoApproval, ConfirmCard, AssistantUI } from '../react/index';

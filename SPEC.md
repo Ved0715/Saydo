@@ -50,7 +50,10 @@ Rules:
 - **3.1** Unspecified `risk` MUST be treated as `destructive`. This matches MCP's `destructiveHint` default.
 - **3.2** A `reversible` capability MUST provide an undo operation. Implementations SHOULD enforce this at the type level.
 - **3.3** A server capability's permission predicate (`can(user)`) MUST be evaluated on the server. A capability failing it MUST NOT be offered to the model.
-- **3.4** Effects returned by a handler are declarative: `navigate` (internal path only), `refresh`, `toast`. A `navigate` effect whose href is not a same-origin path (starts with `/`, not `//`) MUST be dropped.
+- **3.4** Effects returned by a handler are declarative: `navigate` (internal path only), `refresh`, `toast`, `invalidate { keys: string[] }` (client caches the host maps to its data layer). A `navigate` effect whose href is not a same-origin path (starts with `/`, not `//`) MUST be dropped. After a successful non-`read` server capability, the server SHOULD add `refresh` when the handler did not, so the UI never shows data the action changed.
+- **3.5 Workflows.** A workflow is a capability composed of other server capabilities, in an order and with a data flow declared by the developer; the model supplies only the workflow's input. Its risk MUST be at least the highest risk of its steps (a workflow of only `reversible` steps without its own undo is `write`), and a step of risk `never` MUST be rejected at definition. The confirmation view MUST list every step. If a step fails, completed steps with an undo operation SHOULD be undone in reverse order, and the receipt MUST state which completed steps remain in effect.
+- **3.6 Versions.** A grant MUST record the capability version it was staged against; approving it against a different version MUST yield `reload_required` without executing.
+- **3.7 Third-party descriptions.** Descriptions imported from other systems (MCP servers, OpenAPI documents) are untrusted text. Implementations MUST label them as such to the model and SHOULD cap their length.
 
 ## 4. Consent tiers
 
@@ -65,6 +68,8 @@ The tier is computed **only on the server**, from the server's own copy of the d
 | 4 | `never` | never executed; the assistant may only direct the user to the page | MUST refuse |
 
 UI actions registered by mounted components are tier 0. They MUST NOT mutate server state.
+
+**Policy.** An implementation MAY evaluate a deployment policy for every capability call, on the server, after validation and record resolution. A policy MAY deny a call or raise its tier (to 2, or to 3); it MUST NOT lower a tier. A policy error MUST be treated as a denial.
 
 ## 5. Routes and entities
 
@@ -158,7 +163,11 @@ type TurnRequest =
   // agents (§6.5)
   | { type: 'invoke';        tool: string; args: unknown; client: ClientContext }       // in-page browser agents
   | { type: 'grant-status';  grantId: string }
-  | { type: 'grant-approve'; grantId: string; approved: boolean; trusted?: boolean; typed?: string; proof?: unknown };
+  | { type: 'grant-approve'; grantId: string; approved: boolean; trusted?: boolean; typed?: string; proof?: unknown }
+  // stored conversations (§9.1)
+  | { type: 'threads'; limit?: number }
+  | { type: 'thread-open'; threadId: string; client: ClientContext }
+  | { type: 'thread-delete'; threadId: string };
 // Every request MAY carry `requestId` (8–100 chars [A-Za-z0-9_-]). A repeated requestId from the
 // same user returns the stored response and never executes twice.
 
@@ -170,6 +179,7 @@ interface ClientContext {
   context?: Record<string, unknown>;   // untrusted page context, budgeted
   page?: PageSnapshot;                 // the visible page, when the server allows it (§7.5)
   manifestHash?: string;
+  locale?: string;                     // BCP 47; the assistant replies in this language
 }
 ```
 
@@ -268,6 +278,22 @@ Verification MUST reject:
 
 **Deploy skew.** The client sends `manifestHash`. On a mismatch the server MUST answer `reload_required` and MUST NOT execute.
 
+### 9.1 Stored conversations (optional profile)
+
+A server MAY store conversations instead of sealing the whole state. The client then holds a sealed pointer `{ v: 2, ref: threadId, userId, tabId, issuedAt }`, verified exactly as above; the stored thread MUST also belong to the requesting user and MUST NOT be expired. The manifest advertises the profile with `settings.history: true`.
+
+A conversation store MUST provide:
+
+- an atomic compare-and-set save keyed on a monotonically increasing version, so concurrent requests on one conversation cannot silently overwrite each other
+- an append-only transcript (what the user saw), stored as one record per entry
+- listing by user, deletion of one conversation, and deletion of all of a user's conversations (erasure)
+
+Opening a stored conversation (`thread-open`) MUST issue a new pointer bound to the requesting tab. If the store fails while finishing a request, the server MUST still return the response (for example by falling back to sealed state for that request); it MUST NOT discard the outcome of actions that already executed.
+
+### 9.2 Offline and local-first
+
+Gated actions (tier ≥ 1) require a reachable server that holds grants. This draft defines no local-only consent profile: offline, a host SHOULD keep its non-AI route palette working and SHOULD report the assistant as unavailable, rather than weakening consent.
+
 ## 10. Emission mappings (L3)
 
 | This spec | MCP tool annotations | WebMCP `ToolAnnotations` |
@@ -304,6 +330,9 @@ Annotations are hints. Enforcement stays with §4 and §6.
 | Replay or double execution | Atomic single-use grants; outcome replay (§6.3.2, §6.3.3) |
 | Cost abuse of the planner endpoint | Same-origin only, per-user rate limits, output caps |
 | No human present | Non-interactive policy (§6.5) |
+| Tool poisoning through imported descriptions | Third-party labels and caps (§3.7); imported tools default to `destructive` (§3.1) |
+| Running different code than the user approved | Version-pinned grants (§3.6), manifest hash (§9) |
+| Conversation tampering or cross-user access | Sealed pointers bound to user and tab, ownership checked on load (§9.1) |
 
 ## 12. Accessibility considerations
 
@@ -325,6 +354,8 @@ A conforming implementation passes the reference suite (`packages/*/test`) or an
 - RFC 8785 test vectors
 - agents: hidden and `never` capabilities are not listed; delegated grants can be read and approved only by their own user, only with a trusted gesture, exactly once; expiry and denial are terminal
 - grant stores: under concurrent approval of one grant, exactly one caller executes
+- conversation stores: one winner among concurrent saves of one version; ordered append-only transcripts; erasure by user
+- workflows: risk is never below the riskiest step; failed steps undo completed reversible steps in reverse
 
 ## 14. Versioning and extensibility
 
@@ -338,6 +369,7 @@ A conforming implementation passes the reference suite (`packages/*/test`) or an
 ## 15. Open issues
 
 - Taint propagation: escalating tiers in turns that contain untrusted content.
+- Manifest signing: not specified. The manifest is served same-origin over TLS by the server that also serves the code, so a signature adds no protection against the attacker who could alter it.
 - Multi-tab election.
 - MCP extension packaging for §6 (delegated approval as a standard elicitation profile).
 - A second host implementation before v1.0. The reference repository now has a framework-free client (`saydo/dom`) that exercises the turn protocol without React; a second *server* implementation (another language or runtime) is still needed.

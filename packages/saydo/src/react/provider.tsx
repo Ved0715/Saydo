@@ -30,6 +30,12 @@ export interface SaydoProviderProps {
    * WebMCP (document.modelContext). Off by default.
    */
   agents?: boolean;
+  /**
+   * Keep client caches in sync with AI writes. Called with the keys from `invalidate(...)`,
+   * or with no keys after any write (refetch everything visible):
+   *   onInvalidate={(keys) => queryClient.invalidateQueries(keys ? { queryKey: keys } : undefined)}
+   */
+  onInvalidate?: (keys?: string[]) => void;
 }
 
 export function SaydoProvider({
@@ -43,7 +49,12 @@ export function SaydoProvider({
   messages,
   stepUp,
   agents = false,
+  onInvalidate,
 }: SaydoProviderProps) {
+  const invalidateRef = useRef(onInvalidate);
+  useEffect(() => {
+    invalidateRef.current = onInvalidate;
+  });
   const text = useMemo(() => ({ ...defaultMessages, ...messages }), [messages]);
   const routerRef = useRef(router);
   useEffect(() => {
@@ -62,6 +73,7 @@ export function SaydoProvider({
         },
         messages: { offline: text.offline, guardBlocked: text.guardBlocked },
         stepUp,
+        onInvalidate: (keys) => invalidateRef.current?.(keys),
       }),
   );
 

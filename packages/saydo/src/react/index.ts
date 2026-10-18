@@ -1,6 +1,6 @@
 'use client';
 export { SaydoProvider, type SaydoProviderProps } from './provider';
-export { useAction, useCapability, useSaydoContext, useSaydo, useSaydoGuard, useLatest, type UseActionOptions } from './hooks';
+export { useAction, useCapability, useSaydoContext, useSaydo, useSaydoGuard, useConversations, useLatest, type UseActionOptions } from './hooks';
 export { defaultMessages, type SaydoMessages } from './messages';
 export { usePasskeys, webauthnProof, passkeysSupported } from './webauthn';
 export { SaydoApproval } from './approval';

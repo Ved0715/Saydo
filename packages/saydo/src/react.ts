@@ -9,6 +9,7 @@ export {
   useSaydo,
   useSaydoGuard,
   usePasskeys,
+  useConversations,
   SaydoApproval,
   defaultMessages,
   type SaydoMessages,

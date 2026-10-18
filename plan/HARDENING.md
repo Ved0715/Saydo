@@ -148,3 +148,74 @@ Test counts refer to `pnpm test` (114 passing).
 | **Scale blockers:** deploy skew, store contention, caching-aware cost, budgets, graceful degradation | Met (🔧 `deploymentId`, `pricing` → `costUsd`, tracing) |
 | **External reach:** delegated approval, canonical approval view | Met: canonical view ✅; delegated approval, MCP server and WebMCP 🔧 |
 | **Standard 1.0:** IP policy, must-ignore extensibility, i18n model, a second implementation | 🔧 [IP-POLICY.md](../IP-POLICY.md) draft (spec under CC BY 4.0 with an OWFa 1.0 patent commitment, DCO, RFC process). 🔧 SPEC §14 versioning: `protocolVersion`, must-ignore, `x-` extensions. 🔧 A framework-free client (`saydo/dom`). 🗺 A second *server* implementation in another language before 1.0, and legal review of the IP policy. |
+
+---
+
+# Round 2: the "Next.js of AI" review and conversation storage
+
+Date: 2026-10-18 (same day, after the first round). The second analysis again assumed an empty workspace and that conversation storage was undecided. Every item below was checked against the code. Test count after this round: `pnpm test`, 196 passing. Legend as above.
+
+## Correction on the promise
+
+The analysis says "do anything with AI" is the wrong promise. Saydo never made that promise. It promises that the assistant can do what *this user* can do *in this app*, limited by what the developer allows, with every consequential step waiting for the user's click on a card built from the real arguments. "Full freedom" (the user's decision) refers to the default *scope*, meaning the visible page and every element. It does not relax the consent gate or the user's own permissions. ✳
+
+## Item by item
+
+| Area | Item | State |
+|---|---|---|
+| 1 Composition | Multi-step requests need a typed home, not prompt-invented control flow | 🔧 `workflow({ steps })`: a developer-declared order and data flow, and one consent decision on a card listing every step. Its risk is at least the riskiest step's. Completed steps are undone in reverse on failure, and the receipt says which steps stay done. The model can still chain separate actions; each gated one confirms (✅), and calls in one step are batched into one card (✅). |
+| 2 Discovery at scale | Retrieval over thousands of actions, with a deterministic fallback | ✅ `maxTools` scoping plus `find_capability`. 🔧 `search: { embed }` ranks actions by meaning, both for the surfaced set and inside `find_capability`. Descriptions are embedded once per process. Exact keyword hits come first, and embedder failures fall back to keywords. |
+| 3 RSC / caches | AI writes must invalidate caches | 🔧 Every successful non-read server action now adds `refresh` (`router.refresh()` in Next, an event in React Router). 🔧 `invalidate(...keys)` effect plus `onInvalidate` on every provider and on `saydo/dom`, plus a `saydo:invalidate` DOM event, for React Query, SWR and stores. Handlers run in a Next route handler, so `revalidatePath` / `revalidateTag` work as usual. |
+| | Server Components can't register capabilities | ✳ Declarations are isomorphic (`saydo`), handlers are `server-only` modules found by the build, and mounting (`useAction`) is client-only. Verified by real `next build` runs of both templates. |
+| | `useOptimistic` and AI writes | ✳ AI writes are never optimistic: effects apply only after the server receipt, so there is nothing to reconcile. |
+| | State managers | 🔧 `onInvalidate` is the one binding they need (one line for TanStack Query). |
+| 4 Reliability | Record/replay as a subsystem | 🔧 `record` captures every request: planner inputs (already redacted), outputs, events, effects. `replayPlanner(records, { strict })` replays it deterministically and fails on tool drift. |
+| | Structured-output repair | ✅ Invalid arguments are retried once with the validation error, then the turn stops cleanly. |
+| | Provider failover, model routing | 🔧 `model: [primary, backup]` fails over per step. ✅ The circuit breaker and palette fallback. Per-capability model routing: ✳ use `planner` (the escape hatch) when it is needed. |
+| 5 Latency | Fast path, SLOs | ✅ Navigation is answered locally with no model call. 🗺 Streaming responses and speculative prefetch. A latency SLO in CI needs a real model and network to mean anything; `onUsage` and `tracer` give the production numbers. |
+| 6 Permissions | Policy-as-code | 🔧 `authorize({ user, capability, input, origin })` runs on the server for every call (assistant, MCP, browser agents) after records are resolved. It can deny, require confirmation or require step-up, never lower risk. Errors deny. ✅ `can(user)`, route `access`, entity `get` authz. |
+| 7 Versioning | Capability semver, in-flight grants | 🔧 Grants record the capability version; a different version at approval is `reload_required` and never runs. ✅ `manifestHash` skew handling, the lockfile, SPEC §14 versioning rules. |
+| 8 Error taxonomy | Closed, documented outcomes | ✅ Fixed `ReceiptStatus` enum, a `fix` for every status (unit-tested), authored messages only, never raw exceptions (SPEC §8). |
+| 9 i18n of intent | Locale in the envelope | 🔧 `ClientContext.locale` (from `navigator.language`, validated), and the model replies in that language. ✅ Every UI string is localizable (`messages`), and confirm text is yours. |
+| 10 DX | create-app, devtools, type safety, evals | ✅ `create-saydo-app`, `saydo init`, the dev inspector (tools, risks, token and cost estimates), `saydo eval` and `doctor`, the mock planner. 🗺 A replay viewer in the inspector (records exist now). |
+| 11 Standard | Spec, conformance, second implementation, IP, extensibility | ✅ / 🔧 from round 1. 🔧 SPEC: §3.5 workflows, §3.6 versions, §3.7 third-party text, the §4 policy rule, §9.1 the stored-conversation profile, §9.2 offline. 🗺 A non-TypeScript server implementation. |
+| 12 Security | Manifest signing | ✳ Same-origin TLS from the server that also serves the code: anyone able to alter the manifest can alter the JavaScript, so a signature adds nothing (SPEC §15). |
+| | Local-first / offline profile | ✳ Decided (SPEC §9.2): gated actions need a server; offline, the palette works and the assistant reports itself unavailable. No weaker "local consent". |
+| | Tenant-authored text as tool poisoning | 🔧 MCP and OpenAPI descriptions are labeled `[Third-party description]`, flattened and capped at 500 characters, and the model is told never to follow them (`trustDescriptions` for your own servers). They default to `destructive`. |
+| | Bug bounty | 🗺 With the first public release (needs the maintainers' program). |
+
+## Conversation storage (the store-plugin request)
+
+The analysis proposed a pluggable store with an optimal Firestore option. Built as follows:
+
+- **Default: nothing stored.** The browser tab holds signed state, so there is zero setup and no PII at rest. A database is never forced on anyone.
+- **Opt-in `threads` store.** With it, the browser holds a 200-byte signed pointer bound to user and tab, and the server holds the working state plus an append-only transcript. Users get **History** in the palette (or `useConversations()`), resume in any tab or device, and deletion.
+- **The contract (`ThreadStore`, 7 methods):**
+  - `save` is an atomic compare-and-set on `version`, so concurrent turns can't overwrite each other.
+  - The transcript is append-only, one record per line, so there is never a growing hot document.
+  - It also covers listing by user, delete, and `deleteUser` for erasure.
+  - The same contract suite runs against every store.
+- **Plugins:**
+  - `memoryThreadStore()`
+  - `postgresThreadStore(pool)`, tested on PGlite
+  - `firestoreThreadStore(db)` and `firestoreGrantStore(db)`, so Firestore can be the only database:
+    - transactions for compare-and-set and single-use grants
+    - a `entries` subcollection for the transcript
+    - `expireAt` fields for TTL policies
+    - one composite index for listing
+    - URL-encoded document ids
+    - JSON-string payloads, so Firestore's nested-array limits never bite
+- **Verified on Firestore:**
+  - The interface is type-checked against the real `firebase-admin` 14.5 types.
+  - The contract suite runs locally against a faithful in-memory fake (transaction retries, interleaved reads, rejected `undefined`).
+  - In CI it runs against the real Firestore emulator (`firestore` job). This machine has no Java, so the emulator run happens in CI or with `pnpm test:firestore` after installing a JDK.
+- **Failure modes covered:**
+  - A store outage while finishing a turn falls back to sealed state, so executed actions never lose their response.
+  - A load failure gives `store_unavailable` with a fix.
+  - Expired or foreign conversations are refused.
+  - A tampered pointer is refused.
+- **Retention:** 30 days after the last message (`threadTtlMs`); `prune()` on Postgres, TTL policies on Firestore.
+- **Why Firestore is not the default:**
+  - It solves the atomicity and TTL needs natively, which is why it is a first-class plugin.
+  - Making any database the default would couple the zero-config path to a vendor.
+  - Real-time listeners were not needed: threads are per tab by design (✳).

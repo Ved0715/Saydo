@@ -44,6 +44,8 @@ export interface Grant {
   view?: import('./types').ConfirmView;
   /** Input references are record ids (not thread handles); re-resolved with access checks. */
   byId?: boolean;
+  /** The capability version the user saw; a deploy that changes the action voids the approval. */
+  capabilityVersion?: number;
 }
 
 export type GrantPatch = Partial<Pick<Grant, 'kind' | 'expiresAt' | 'outcome' | 'response' | 'args'>>;

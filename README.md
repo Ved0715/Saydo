@@ -66,11 +66,12 @@ The pieces you will meet:
 12. [Passkeys for the riskiest steps](#12-passkeys-for-the-riskiest-steps)
 13. [Agents outside your app (MCP, WebMCP)](#13-agents-outside-your-app-mcp-webmcp)
 14. [Without React (`saydo/dom`)](#14-without-react-saydodom)
-15. [Production](#15-production)
-16. [The safety model](#the-safety-model)
-17. [CLI](#cli)
-18. [API reference](#api-reference)
-19. [FAQ](#faq)
+15. [Conversations and storage](#15-conversations-and-storage)
+16. [Production](#16-production)
+17. [The safety model](#the-safety-model)
+18. [CLI](#cli)
+19. [API reference](#api-reference)
+20. [FAQ](#faq)
 
 ---
 
@@ -138,7 +139,7 @@ export default pages([
 ]);
 ```
 
-For production, serve the endpoint from your server. See [Production](#15-production).
+For production, serve the endpoint from your server. See [Production](#16-production).
 
 **Requirements:** React 19.2+, Node 20.9+, `ai` 7+ and `zod` 4+.
 
@@ -165,7 +166,7 @@ export default defineConfig({
 
 | Option | Default | What it does |
 |---|---|---|
-| `model` | mock planner in dev | Any AI SDK `LanguageModel`. Required in production unless you pass `planner`. |
+| `model` | mock planner in dev | Any AI SDK `LanguageModel`, or several (`[primary, backup]`) to fail over when a provider errors. Required in production unless you pass `planner`. |
 | `planner` | from `model` | Bring your own planner (custom agent loop). The consent gate still applies. |
 | `getUser(request)` | anonymous | Your signed-in user `{ id, ...anything }`. Return `null` to refuse. |
 | `see.page` | `true` | Send the visible page to the model as untrusted context. |
@@ -183,6 +184,10 @@ export default defineConfig({
 | `deploymentId` | `VERCEL_DEPLOYMENT_ID` | Recorded on audit entries and in the manifest, so incidents map to a deploy. |
 | `audit` | none | Receives every decision. Wrap your sink with `createAuditLog()` for a tamper-evident chain. |
 | `tools` | `[]` | `mcp()`, `aiTools()`, `fromOpenAPI()`, `fromTRPC()`, or plain actions. |
+| `threads` | none | Store conversations on the server (history, resume, erasure). See §15. |
+| `authorize` | none | Central policy for every action call, on the server: return `true`, `false`, `{ deny: 'reason' }`, `'confirm'` or `'step-up'`. Plug in OPA, Cedar or your RBAC. It can add friction, never remove it. |
+| `search` | keyword | `{ embed }`: find actions by meaning in large apps (more than `maxTools`). Falls back to keywords on errors. |
+| `record` | none | Receives every request (what the model saw and answered, and what happened). Replay it with `replayPlanner(records)` to turn an incident into a test. |
 | `store` | memory in dev | Where approvals live. `'memory'` is for single-instance servers. Production with gated actions needs a store, or an explicit `'memory'`. |
 | `instructions` | none | Brand voice or domain hints. They are appended and can never replace the safety rules. |
 | `maxTools` | `40` | Above this, only page-relevant actions are sent in full; the model finds the rest with `find_capability`. |
@@ -264,11 +269,33 @@ export const archivePost = action({
 
 **Handler context** (`ctx`): `user`, `request` (the incoming `Request`), `signal`, `invocationId` (use it as an idempotency key), `threadId`, `route`.
 
-**Effects** you can return: `navigate(href)`, `refresh()`, `toast(message)`.
+**Effects** you can return: `navigate(href)`, `refresh()`, `toast(message)`, `invalidate(...keys)` (client caches, see §9). After any successful write the page refreshes its server data on its own, so the screen never shows stale rows.
 
 **Errors:** throw `new CapabilityError(status, hint)` to give the model a clear, safe reason. Raw exception text never reaches the model.
 
-Other options: `title`, `can(user)` (hidden from users who fail it), `scope: { routes }` (a relevance hint), `expose`, `version`, `confirm: { view }` (a custom card built from the validated input).
+Other options: `title`, `can(user)` (hidden from users who fail it), `scope: { routes }` (a relevance hint), `expose`, `version` (bump it when behavior changes: approvals shown for the old version are refused, never run against the new code), `confirm: { view }` (a custom card built from the validated input).
+
+### Workflows: several steps, one approval
+
+When a request needs several actions in a fixed order ("publish it and email the subscribers"), compose them. The steps, their order and the data flow are yours; the model only fills the input. The user approves once, on a card that lists every step:
+
+```ts
+import { workflow } from 'saydo';
+
+export const launchPost = workflow({
+  describe: 'Publish a post and email its subscribers',
+  input: z.object({ post: Post.ref(), subject: z.string().max(80) }),
+  steps: [
+    { run: publishPost, input: ({ post }) => ({ post }) },
+    { run: notifySubscribers, input: ({ post, subject }, [published]) => ({ postId: post.id, subject }) },
+    { run: postToSlack, input: ({ post }) => ({ text: post.title }), when: ({ post }) => post.public },
+  ],
+});
+```
+
+- The risk is the riskiest step's (you can raise it with `risk`, never lower it).
+- If a step fails, the completed steps that have `undo` are undone in reverse order, and the receipt says exactly which steps stay done.
+- Each step's plain fields are validated with that step's own schema, and each step gets its own `ctx.invocationId` (`<id>:<step>`).
 
 ## 5. Server Actions
 
@@ -394,6 +421,14 @@ export const POST = withGrant(publishPost, handler, {
 });
 ```
 
+**Keeping client caches in sync.** After an AI write, Saydo calls `router.refresh()` (server components update) and `onInvalidate`, so React Query, SWR or your store can refetch too:
+
+```tsx
+<SaydoProvider onInvalidate={(keys) => queryClient.invalidateQueries(keys ? { queryKey: keys } : undefined)}>
+```
+
+`keys` is undefined after any write ("something changed"), or the exact keys a handler returned with `invalidate('posts', 'tags')`. Non-React code can listen for the `saydo:invalidate` DOM event. In Next.js handlers you can also call `revalidatePath` / `revalidateTag` as usual.
+
 ## 10. External tools and APIs
 
 ```ts
@@ -515,7 +550,37 @@ saydo.guard(form.dirty ? 'You have an unsaved draft.' : null);
 
 The server side is any fetch-style handler: `createHandler(registry)` from `saydo/handler`.
 
-## 15. Production
+## 15. Conversations and storage
+
+By default nothing is stored: the conversation lives in the browser tab as signed state. To give users **history, resume on any device, and erasure**, add a conversation store. The browser then holds only a small signed pointer, and the palette shows **History**.
+
+```ts
+// saydo.config.ts: pick any store, or write your own (7 small methods)
+import { getFirestore } from 'firebase-admin/firestore';
+import { firestoreThreadStore, firestoreGrantStore } from 'saydo/server';
+
+export default defineConfig({
+  threads: firestoreThreadStore(getFirestore()),   // or postgresThreadStore(pool), memoryThreadStore()
+  store: firestoreGrantStore(getFirestore()),      // approvals too, so Firestore is the only database you need
+});
+```
+
+| Store | Conversations | Approvals | Notes |
+|---|---|---|---|
+| Firestore | `firestoreThreadStore(db)` | `firestoreGrantStore(db)` | Transactions for compare-and-set and single-use approvals. One small document per conversation plus one per transcript line, so a long chat never becomes a hot, growing document. Create one composite index (`saydo_threads`: `userId` ascending, `updatedAt` descending) and TTL policies on `expireAt` (collection `saydo_threads`, collection group `entries`, collection `saydo_grants`). |
+| Postgres | `postgresThreadStore(pool)` | `postgresGrantStore(pool)` | `await store.migrate()` once; `prune()` from a cron job. |
+| Redis | (bring your own) | `redisGrantStore(…)` | |
+| Memory | `memoryThreadStore()` | `'memory'` | One process only (dev, tests, single-instance servers). |
+
+Your own store implements `ThreadStore` (`get`, `save`, `append`, `transcript`, `list`, `delete`, `deleteUser`). Two rules: `save` is an atomic compare-and-set on `version`, and the transcript is append-only. The contract test suite in the repo checks both against every store.
+
+- **Hooks:** `const { enabled, list, open, remove, startNew } = useConversations()` to build your own history UI.
+- **Retention:** conversations expire 30 days after the last message (`threadTtlMs`).
+- **Erasure:** `await threads.deleteUser(userId)` and `await store.deleteUser(userId)` remove everything Saydo stored for a user.
+- **Outages:** if the store is down during a turn, the response is never lost; that turn falls back to signed browser state and the conversation is saved again on the next turn.
+- **What is stored:** the working state (messages, action results, record handles) and a transcript of what the user saw. Page snapshots are not stored.
+
+## 16. Production
 
 - **`SAYDO_SECRET`:** at least 32 random characters (`openssl rand -hex 32`). Required.
 - **`model`:** required unless you pass `planner`.
@@ -539,6 +604,9 @@ const store = redisGrantStore({ eval: (script, keys, args) => redis.eval(script,
 - **Exactly once:** every request carries a `requestId`, and the browser retries once on network errors. The server stores each response, so a retry never runs an action twice. Each tool call is also claimed once, and `ctx.invocationId` is your idempotency key for your own database writes.
 - **Audit trail:** `audit: createAuditLog((record) => db.insert('saydo_audit', record))` gives you a hash-chained, append-only log (check it with `verifyAuditChain`). It records who did what, at which tier, how the user consented, a digest of the exact card they saw, the model and the deployed manifest, but never the arguments, so it holds no PII.
 - **Right to erasure:** `store.deleteUser(userId)`. Conversation state is never stored on the server.
+- **Central policy:** `authorize: ({ user, capability, input, origin }) => …` runs for every action call (assistant, MCP and browser agents) after records are resolved, so it sees real objects. Errors deny. It does not cover clicks on page elements; those follow `act`.
+- **Reproducing incidents:** `record: (turn) => log.write(turn)`, then in a test: `createEngine({ …, planner: replayPlanner(turns, { strict: true }) })`. `strict` fails when the app now offers the model different tools than when the turn happened.
+- **Model outages:** `model: [anthropic('claude-sonnet-5-5'), openai('gpt-5')]` fails over per step; after repeated failures the circuit breaker answers fast and the palette keeps working.
 - **Tracing and cost:** pass `tracer: trace.getTracer('saydo')` for OpenTelemetry spans, and `pricing` to get `costUsd` per request in `onUsage`. `npx saydo inspect /page` and the dev inspector show the estimated input tokens per model step on each page.
 - **Limits and outages:** per-user `rateLimit` and `budget`. After repeated model failures a circuit breaker returns a fast `planner_unavailable` for 30 seconds, and the palette keeps working.
 - **Lockfile:** `saydo.capabilities.json` is written in dev and checked during `next build`. In CI (`CI=true`) a stale lockfile fails the build, so lowered risk and newly exposed actions always show up in review.
@@ -569,6 +637,9 @@ Any fetch-style server (Hono, Bun, Deno, Workers) can use `createHandler(registr
 | Guessed or foreign ids | The model only sees server-minted handles, and each one is re-checked through your entity's `get` on every use. |
 | Data leaking out | `data-saydo-private` content never leaves the browser. Passwords and payment fields are masked. URL parameters must be declared. Navigation effects must be internal paths. API error bodies are dropped. |
 | Scripts or browser agents clicking "Approve" | Approvals from synthetic (`isTrusted: false`) events are refused. Bulk destructive steps need typed confirmation or the user's passkey (`stepUp`). A per-request confirmation budget stops a hijacked turn from flooding the user with cards. `never` actions cannot run at all. |
+| A deploy changes an action while a card is open | Approvals record the action's `version`; a different version is refused (`reload_required`), never run. |
+| Third-party tool descriptions carrying instructions ("tool poisoning") | Descriptions from MCP servers and OpenAPI specs are labeled third-party, flattened and capped, and the model is told never to follow them. Their tools default to `destructive`. |
+| Your org's permission rules | `authorize` runs on the server for every call and can only deny or add confirmation. |
 | External agents | Nothing is exposed unless an action opts in with `expose`. Agents authenticate as the user, every id goes through your entity's `get`, and gated calls become a link the user approves in your app. |
 | Abuse of your model budget | The endpoint accepts same-origin JSON only, is rate-limited and budgeted per user, step-capped with loop detection, and refuses off-topic work. A circuit breaker protects you during provider outages. |
 | Retries and lost responses | Request-level idempotency (`requestId`), exactly-once tool-call claims, and replay of stored outcomes. |
@@ -595,11 +666,11 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 
 | Import | Exports |
 |---|---|
-| `saydo` | `action` (`defineCapability`), `serverAction`, `entity` (`defineEntity`), `entityRef`, `page` (`defineRoute`), `pages` (`defineRoutes`), `navigate`, `refresh`, `toast`, `CapabilityError`, types |
+| `saydo` | `action` (`defineCapability`), `serverAction`, `workflow`, `entity` (`defineEntity`), `entityRef`, `page` (`defineRoute`), `pages` (`defineRoutes`), `navigate`, `refresh`, `toast`, `invalidate`, `CapabilityError`, types |
 | `saydo/config` | `defineConfig` |
-| `saydo/server` | `mcp`, `aiTools`, `fromOpenAPI`, `fromTRPC`, `postgresGrantStore`, `redisGrantStore`, `MemoryGrantStore`, `webauthn`, `memoryPasskeyStore`, `postgresPasskeyStore`, `createAuditLog`, `verifyAuditChain`, `redactor`, `costOf`, `createEngine`, `mockPlanner`, `aiSdkPlanner`, `seal`/`unseal` |
+| `saydo/server` | `mcp`, `aiTools`, `fromOpenAPI`, `fromTRPC`, `postgresGrantStore`, `redisGrantStore`, `firestoreGrantStore`, `MemoryGrantStore`, `memoryThreadStore`, `postgresThreadStore`, `firestoreThreadStore`, `replayPlanner`, `webauthn`, `memoryPasskeyStore`, `postgresPasskeyStore`, `createAuditLog`, `verifyAuditChain`, `redactor`, `costOf`, `createEngine`, `mockPlanner`, `aiSdkPlanner`, `seal`/`unseal` |
 | `saydo/next` | `withSaydo` |
-| `saydo/next/client` | `SaydoProvider`, `useAction`, `useCapability`, `useSaydoContext`, `useSaydoGuard`, `useSaydo`, `usePasskeys`, `SaydoApproval`, `ConfirmCard`, `AssistantUI` |
+| `saydo/next/client` | `SaydoProvider`, `useAction`, `useCapability`, `useSaydoContext`, `useSaydoGuard`, `useSaydo`, `usePasskeys`, `useConversations`, `SaydoApproval`, `ConfirmCard`, `AssistantUI` |
 | `saydo/next/server` | `createSaydoHandler`, `withGrant` |
 | `saydo/next/route` | `POST` |
 | `saydo/next/mcp` | `POST`, `GET`, `DELETE`: the MCP server |
@@ -629,7 +700,7 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 
 ## Status
 
-v0.1. Built and tested (153 tests, including Postgres concurrency on PGlite, a real Redis server, a software WebAuthn authenticator and the AI SDK MCP client, plus real builds of both templates installed from packed tarballs):
+v0.1. Built and tested (196 tests, including Postgres concurrency on PGlite, a real Redis server, a software WebAuthn authenticator and the AI SDK MCP client, plus real builds of both templates installed from packed tarballs):
 
 - Next.js App Router, Vite + React Router, and framework-free `saydo/dom`
 - page vision and element actions
@@ -638,6 +709,9 @@ v0.1. Built and tested (153 tests, including Postgres concurrency on PGlite, a r
 - consent tiers, single-use grants, undo, batched confirmations, passkey step-up
 - Postgres and Redis approval stores, hash-chained audit log, budgets, circuit breaker
 - MCP server and WebMCP for outside agents, with delegated approval
+- workflows (composed actions with compensation), a central `authorize` policy, version-pinned approvals
+- optional conversation storage (Firestore, Postgres, memory) with history and resume
+- meaning-based action search, record and replay, model failover, automatic UI refresh after writes
 - OpenTelemetry tracing and cost estimates
 - the lockfile, CLI, `create-saydo-app` and the dev inspector
 

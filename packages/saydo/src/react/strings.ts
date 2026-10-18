@@ -26,6 +26,10 @@ export interface SaydoMessages {
   dismiss: string;
   offline: string;
   guardBlocked: string;
+  history: string;
+  historyHide: string;
+  historyEmpty: string;
+  deleteConversation: string;
 }
 
 export const defaultMessages: SaydoMessages = {
@@ -55,4 +59,8 @@ export const defaultMessages: SaydoMessages = {
   dismiss: 'Dismiss',
   offline: 'The assistant is unavailable right now. You can still jump to any page from the list.',
   guardBlocked: 'This page has unsaved changes. Save or discard them first.',
+  history: 'History',
+  historyHide: 'Hide history',
+  historyEmpty: 'No earlier conversations yet.',
+  deleteConversation: 'Delete conversation',
 };

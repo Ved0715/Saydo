@@ -54,6 +54,25 @@ export interface ClientContext {
   /** Set while the page has unsaved changes (useSaydoGuard); AI navigation is then refused. */
   guard?: string;
   manifestHash?: string;
+  /** The user's language (BCP 47, e.g. 'de-CH'); the assistant replies in it. */
+  locale?: string;
+}
+
+/** A stored conversation, as listed in the history panel. */
+export interface ThreadSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One line of a stored conversation: what the user saw. */
+export interface TranscriptEntry {
+  at: number;
+  role: 'user' | 'assistant' | 'action';
+  text: string;
+  status?: ReceiptStatus;
+  capability?: string;
 }
 
 /** Every request may carry a requestId; a retry with the same id returns the stored response instead of re-running. */
@@ -117,6 +136,8 @@ export interface TurnResponse {
   effects: Effect[];
   pending?: PendingAction;
   done: boolean;
+  /** The conversation id, when conversations are stored on the server. */
+  threadId?: string;
 }
 
 export interface TurnError {
@@ -142,6 +163,8 @@ export interface ClientSettings {
   page: boolean;
   /** Which page elements the assistant may operate. */
   elements: 'all' | 'annotated' | 'none';
+  /** Conversations are stored on the server (history and resume are available). */
+  history?: boolean;
 }
 
 /** An action exposed to agents (MCP clients, WebMCP browser agents). */

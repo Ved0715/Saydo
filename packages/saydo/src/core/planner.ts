@@ -229,3 +229,29 @@ function summarize(history: HistoryItem[]): string {
       .join(' ') || 'Done.'
   );
 }
+
+/**
+ * Replays recorded model answers (from the engine's `record` option) in order, so a
+ * production incident becomes a deterministic test. With `strict`, it throws when the
+ * app now offers the model different tools than when the turn was recorded.
+ */
+export function replayPlanner(
+  records: { steps: { input: { tools: { name: string }[] }; output: PlannerOutput }[] } | { steps: { input: { tools: { name: string }[] }; output: PlannerOutput }[] }[],
+  options: { strict?: boolean } = {},
+): Planner {
+  const steps = (Array.isArray(records) ? records : [records]).flatMap((r) => r.steps);
+  let index = 0;
+  return {
+    name: 'replay',
+    async plan(input) {
+      const step = steps[index++];
+      if (!step) throw new Error(`[saydo] replay: the app asked the model ${index} times; the recording has ${steps.length} steps.`);
+      if (options.strict) {
+        const now = input.tools.map((t) => t.name).sort().join(',');
+        const then = step.input.tools.map((t) => t.name).sort().join(',');
+        if (now !== then) throw new Error(`[saydo] replay drift at step ${index}: tools were [${then}], now [${now}].`);
+      }
+      return structuredClone(step.output);
+    },
+  };
+}

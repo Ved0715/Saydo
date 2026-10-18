@@ -26,6 +26,8 @@ export interface CreateSaydoOptions {
   /** Expose `expose: { browserAgent: true }` actions to in-page browser agents (WebMCP). Default false. */
   agents?: boolean;
   fetch?: typeof fetch;
+  /** Refetch client caches after AI writes (keys from `invalidate(...)`, or undefined after any write). */
+  onInvalidate?: (keys?: string[]) => void;
 }
 
 export interface SaydoClient {
@@ -71,6 +73,7 @@ export function createSaydo(options: CreateSaydoOptions = {}): SaydoClient {
     fetch: options.fetch,
     stepUp: options.stepUp,
     messages: options.messages,
+    onInvalidate: options.onInvalidate,
   });
   const cleanups: (() => void)[] = [];
   const owner = Symbol('saydo-dom');

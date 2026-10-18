@@ -6,6 +6,8 @@ import {
   type ClientManifest,
   type Effect,
   type InvokeResult,
+  type ThreadSummary,
+  type TranscriptEntry,
   type PendingAction,
   type Receipt,
   type ReceiptStatus,
@@ -49,6 +51,8 @@ export interface RuntimeSnapshot {
   announcement: string;
   reloadRequired: boolean;
   offline: boolean;
+  /** The current conversation, when conversations are stored on the server. */
+  threadId?: string;
 }
 
 /** Dev-only view of what the model sees on this page. */
@@ -76,6 +80,8 @@ export interface RuntimeOptions {
   messages?: { offline?: string; guardBlocked?: string };
   /** Produce a step-up proof (default: the user's passkey via WebAuthn). */
   stepUp?: (challenge: StepUpChallenge) => Promise<unknown>;
+  /** Refetch client caches after AI writes: `keys` from `invalidate(...)`, or undefined after any refresh. */
+  onInvalidate?: (keys?: string[]) => void;
 }
 
 let itemSeq = 0;
@@ -223,6 +229,7 @@ export class SaydoRuntime {
       page,
       guard: registry.activeGuard(),
       manifestHash: this.snapshot.manifest?.manifestHash,
+      locale: typeof navigator !== 'undefined' ? navigator.language : undefined,
     };
   }
 
@@ -377,7 +384,40 @@ export class SaydoRuntime {
 
   reset() {
     this.state = undefined;
-    this.set({ items: [], confirm: undefined, confirmError: undefined });
+    this.set({ items: [], confirm: undefined, confirmError: undefined, threadId: undefined });
+  }
+
+  /** Earlier conversations (when the app stores them on the server). */
+  async listConversations(): Promise<ThreadSummary[]> {
+    const result = (await this.call({ type: 'threads' })) as { ok: boolean; threads?: ThreadSummary[] } | null;
+    return result?.ok && Array.isArray(result.threads) ? result.threads : [];
+  }
+
+  /** Continue an earlier conversation in this tab. */
+  async openConversation(threadId: string): Promise<boolean> {
+    const result = (await this.call({ type: 'thread-open', threadId, client: this.client() })) as
+      | { ok: true; state: string; threadId: string; items: TranscriptEntry[] }
+      | { ok: false; message: string; fix: string }
+      | null;
+    if (!result?.ok) {
+      if (result) this.add({ role: 'notice', text: `${result.message} ${result.fix}`.trim(), status: 'expired' });
+      return false;
+    }
+    this.state = result.state;
+    this.set({
+      open: true,
+      confirm: undefined,
+      confirmError: undefined,
+      threadId: result.threadId,
+      items: result.items.map((entry) => ({ id: nextId(), role: entry.role, text: entry.text, status: entry.status })),
+    });
+    return true;
+  }
+
+  async deleteConversation(threadId: string): Promise<boolean> {
+    const result = (await this.call({ type: 'thread-delete', threadId })) as { ok: boolean } | null;
+    if (result?.ok && this.snapshot.threadId === threadId) this.reset();
+    return Boolean(result?.ok);
   }
 
   private async request(body: TurnRequest, restoreConfirm?: ConfirmPending) {
@@ -440,6 +480,7 @@ export class SaydoRuntime {
       return;
     }
     this.state = result.state;
+    if (result.threadId && result.threadId !== this.snapshot.threadId) this.set({ threadId: result.threadId });
     for (const event of result.events) {
       if (event.type === 'assistant') this.add({ role: 'assistant', text: event.text });
       else if (event.status !== 'ok' || event.capability !== 'nav_goto') {
@@ -461,10 +502,22 @@ export class SaydoRuntime {
   private async applyEffects(effects: Effect[]) {
     for (const effect of effects) {
       if (effect.type === 'navigate') await this.navigate(effect.href, effect.title, true);
-      else if (effect.type === 'refresh') this.options.router.refresh?.();
+      else if (effect.type === 'refresh') {
+        this.options.router.refresh?.();
+        this.invalidate(undefined);
+      } else if (effect.type === 'invalidate') this.invalidate(effect.keys);
       else if (effect.type === 'toast') this.toast({ message: effect.message });
       else if (effect.type === 'undo') this.toast({ message: effect.label, undo: effect }, Math.min(effect.expiresAt - Date.now(), 15_000));
     }
+  }
+
+  private invalidate(keys: string[] | undefined) {
+    try {
+      this.options.onInvalidate?.(keys);
+    } catch (error) {
+      console.error('[saydo] onInvalidate failed', error);
+    }
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('saydo:invalidate', { detail: { keys } }));
   }
 
   private toast(toast: Omit<ToastItem, 'id'>, ttl = 5000) {

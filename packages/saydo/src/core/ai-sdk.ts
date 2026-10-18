@@ -12,8 +12,11 @@ import type { Planner } from './planner';
 import type { HistoryItem } from './protocol';
 
 export interface AISdkPlannerOptions {
-  /** Any AI SDK model, e.g. `anthropic('claude-sonnet-5-5')`. */
-  model: LanguageModel;
+  /**
+   * Any AI SDK model, e.g. `anthropic('claude-sonnet-5-5')`. Pass several to fail over:
+   * when one errors (outage, 429, timeout), the next is tried for that step.
+   */
+  model: LanguageModel | LanguageModel[];
   maxOutputTokens?: number;
   maxRetries?: number;
   /** Mark the stable instructions as a prompt-cache breakpoint (Anthropic). Default true. */
@@ -84,17 +87,30 @@ export function aiSdkPlanner(options: AISdkPlannerOptions): Planner {
             { role: 'system' as const, content: input.instructionParts.dynamic },
           ]
         : input.instructions;
-      const result = await generateText({
-        ...(options.generateOptions as object),
-        model: options.model,
-        instructions,
-        messages: toModelMessages(input.history),
-        tools,
-        toolChoice: 'auto',
-        maxOutputTokens: options.maxOutputTokens ?? 1024,
-        maxRetries: options.maxRetries ?? 1,
-        abortSignal: signal,
-      });
+      const models = Array.isArray(options.model) ? options.model : [options.model];
+      if (!models.length) throw new Error('[saydo] aiSdkPlanner needs at least one model.');
+      let result: Awaited<ReturnType<typeof generateText>> | undefined;
+      let lastError: unknown;
+      for (const model of models) {
+        if (signal?.aborted) break;
+        try {
+          result = await generateText({
+            ...(options.generateOptions as object),
+            model,
+            instructions,
+            messages: toModelMessages(input.history),
+            tools,
+            toolChoice: 'auto',
+            maxOutputTokens: options.maxOutputTokens ?? 1024,
+            maxRetries: options.maxRetries ?? 1,
+            abortSignal: signal,
+          });
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!result) throw lastError ?? new Error('The request was cancelled.');
       return {
         text: result.text,
         calls: result.toolCalls.map((call) => ({ id: call.toolCallId, name: call.toolName, args: call.input })),

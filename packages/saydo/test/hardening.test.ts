@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { createClient } from 'redis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { grantStoreContract as contractTests } from './contracts';
 import { z } from 'zod';
 import { defineCapability, defineEntity, defineRoute } from '../src/core/index';
 import { createHandler } from '../src/core/handler';
@@ -192,52 +193,6 @@ describe('audit', () => {
     expect(await verifyAuditChain(records)).toBe(1);
   });
 });
-
-async function contractTests(name: string, makeStore: () => Promise<GrantStore>) {
-  describe(`grant store contract: ${name}`, () => {
-    const grant = (id: string, extra: Partial<Grant> = {}): Grant => ({
-      id,
-      kind: 'confirm',
-      capabilityId: 'x',
-      userId: 'u1',
-      threadId: 't',
-      tabId: 'tab',
-      toolCallId: 'c',
-      args: { a: 1 },
-      tier: 2,
-      state: 'staged',
-      createdAt: 1000,
-      expiresAt: 999_999,
-      ...extra,
-    });
-
-    it('consumes a grant exactly once under concurrent approvals', async () => {
-      const store = await makeStore();
-      await store.create(grant('g1'));
-      const results = await Promise.all(Array.from({ length: 20 }, () => store.transition('g1', 'staged', 'consumed')));
-      expect(results.filter(Boolean)).toHaveLength(1);
-      expect((await store.get('g1'))?.state).toBe('consumed');
-    });
-
-    it('claims an id once, but lets an expired claim be taken over', async () => {
-      const store = await makeStore();
-      const claims = await Promise.all(Array.from({ length: 10 }, () => store.claim(grant('c1', { expiresAt: 5000 }))));
-      expect(claims.filter(Boolean)).toHaveLength(1);
-      expect(await store.claim(grant('c1', { createdAt: 6000, expiresAt: 9000 }))).toBe(true);
-    });
-
-    it('patches, and erases a user', async () => {
-      const store = await makeStore();
-      await store.create(grant('p1'));
-      await store.create(grant('p2', { userId: 'u2' }));
-      await store.update('p1', { outcome: { receipt: { status: 'ok' }, effects: [] }, expiresAt: 42 });
-      expect(await store.get('p1')).toMatchObject({ outcome: { receipt: { status: 'ok' } }, expiresAt: 42 });
-      expect(await store.deleteUser('u1')).toBe(1);
-      expect(await store.get('p1')).toBeUndefined();
-      expect(await store.get('p2')).toBeDefined();
-    });
-  });
-}
 
 contractTests('memory', async () => new MemoryGrantStore());
 

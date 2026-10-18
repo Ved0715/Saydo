@@ -37,7 +37,7 @@ export function useSaydoRefresh(callback: () => void) {
   }, []);
 }
 
-export { useAction, useCapability, useSaydoContext, useSaydo, useSaydoGuard } from './hooks';
+export { useAction, useCapability, useSaydoContext, useSaydo, useSaydoGuard, useConversations } from './hooks';
 export { usePasskeys } from './webauthn';
 export { SaydoApproval } from './approval';
 export { AssistantUI, ConfirmCard } from './ui';

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { searchRoutes } from '../core/index';
-import { useSaydo } from './hooks';
+import { searchRoutes, type ThreadSummary } from '../core/index';
+import { useConversations, useSaydo } from './hooks';
 import { useRuntime } from './context';
 import { useMessages } from './messages';
 import type { ConfirmPending, InspectResult } from './runtime';
@@ -66,6 +66,13 @@ export function AssistantUI({ placeholder }: { placeholder?: string }) {
   const nav = useSaydo();
   const m = useMessages();
   const [inspecting, setInspecting] = useState(false);
+  const conversations = useConversations();
+  const [history, setHistory] = useState<ThreadSummary[] | null>(null);
+  const toggleHistory = async () => {
+    if (history) return setHistory(null);
+    setHistory([]);
+    setHistory(await conversations.list());
+  };
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -213,8 +220,37 @@ export function AssistantUI({ placeholder }: { placeholder?: string }) {
                   ))}
                 </div>
               )}
+              {history && (
+                <div className="saydo-history" aria-label={m.history}>
+                  <p className="saydo-section">{m.history}</p>
+                  {!history.length && <p className="saydo-hint">{m.historyEmpty}</p>}
+                  {history.map((thread) => (
+                    <div key={thread.id} className="saydo-option" aria-current={thread.id === conversations.current ? 'true' : undefined}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistory(null);
+                          void conversations.open(thread.id);
+                        }}
+                      >
+                        <span>{thread.title}</span>
+                        <small>{new Date(thread.updatedAt).toLocaleString()}</small>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${m.deleteConversation}: ${thread.title}`}
+                        onClick={async () => {
+                          if (await conversations.remove(thread.id)) setHistory((list) => list?.filter((t) => t.id !== thread.id) ?? null);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               {inspecting && isDev && <DevInspector />}
-              {!nav.items.length && !query && !inspecting && (
+              {!nav.items.length && !query && !inspecting && !history && (
                 <p className="saydo-hint">{m.hint}</p>
               )}
             </div>
@@ -222,6 +258,14 @@ export function AssistantUI({ placeholder }: { placeholder?: string }) {
             <div className="saydo-footer">
               <span>{m.footer}</span>
               <span>
+                {conversations.enabled && (
+                  <>
+                    <button type="button" onClick={() => void toggleHistory()}>
+                      {history ? m.historyHide : m.history}
+                    </button>
+                    {' · '}
+                  </>
+                )}
                 {isDev && (
                   <button type="button" onClick={() => setInspecting((v) => !v)}>
                     {inspecting ? m.inspectorHide : m.inspectorShow}

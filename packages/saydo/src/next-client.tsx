@@ -10,5 +10,6 @@ export {
   useSaydo,
   useSaydoGuard,
   usePasskeys,
+  useConversations,
   SaydoApproval,
 } from './next/client';

@@ -8,6 +8,7 @@ export {
   useSaydo,
   useSaydoGuard,
   usePasskeys,
+  useConversations,
   SaydoApproval,
   AssistantUI,
   ConfirmCard,

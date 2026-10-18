@@ -157,3 +157,24 @@ export function useSaydo() {
     [runtime, snapshot],
   );
 }
+
+/**
+ * Stored conversations: list, resume and delete them (needs `threads` in saydo.config.ts).
+ * `enabled` is false when the app keeps conversations in the browser tab only.
+ */
+export function useConversations() {
+  const runtime = useRuntime();
+  const enabled = useSyncExternalStore(runtime.subscribe, () => runtime.getSnapshot().manifest?.settings.history === true, () => false);
+  const current = useSyncExternalStore(runtime.subscribe, () => runtime.getSnapshot().threadId, () => undefined);
+  return useMemo(
+    () => ({
+      enabled,
+      current,
+      list: () => runtime.listConversations(),
+      open: (threadId: string) => runtime.openConversation(threadId),
+      remove: (threadId: string) => runtime.deleteConversation(threadId),
+      startNew: () => runtime.reset(),
+    }),
+    [runtime, enabled, current],
+  );
+}

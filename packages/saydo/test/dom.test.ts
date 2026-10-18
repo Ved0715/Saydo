@@ -89,6 +89,21 @@ describe('saydo/dom', () => {
     expect(q('.saydo-root')).toBeNull();
   });
 
+  it('keeps client caches in sync: onInvalidate and a DOM event after AI writes', async () => {
+    const { engine, db } = setup([call('posts_archive', { post: 'post#1' }), { text: 'Archived.', calls: [] }]);
+    const onInvalidate = vi.fn();
+    const events: unknown[] = [];
+    const listener = (e: Event) => events.push((e as CustomEvent).detail);
+    window.addEventListener('saydo:invalidate', listener);
+    client = createSaydo({ fetch: serverFetch(engine), router: { push: () => {}, refresh: () => {} }, ui: false, onInvalidate });
+    client.navigated('/posts/p2');
+    await client.ask('archive this post');
+    window.removeEventListener('saydo:invalidate', listener);
+    expect(db.posts.get('p2')!.archived).toBe(true);
+    expect(onInvalidate).toHaveBeenCalledWith(undefined);
+    expect(events).toEqual([{ keys: undefined }]);
+  });
+
   it('destroy removes the UI and listeners', async () => {
     const { engine } = setup();
     client = createSaydo({ fetch: serverFetch(engine), router: { push: () => {} } });

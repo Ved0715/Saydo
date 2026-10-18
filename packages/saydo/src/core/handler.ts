@@ -19,7 +19,8 @@ export { GRANT_HEADER };
 /** Everything configurable, usually written once in `saydo.config.ts`. */
 export interface SaydoOptions {
   /** Any AI SDK model. Omit in dev to use the deterministic mock planner. */
-  model?: LanguageModel;
+  /** Any AI SDK model, or several in order of preference (failover on errors). */
+  model?: LanguageModel | LanguageModel[];
   /** Bring your own planner (custom agent, AG-UI backend). The gate still applies. */
   planner?: Planner;
   /** Resolve the signed-in user. Defaults to an anonymous user (fine for navigation-only apps). */
@@ -53,10 +54,22 @@ export interface SaydoOptions {
   budget?: { requestsPerDay?: number; tokensPerDay?: number };
   /** Token usage per request: wire it to metrics and spend alerts. */
   onUsage?: EngineOptions['onUsage'];
+  /**
+   * Store conversations on the server: history, resume on any device, erasure. Optional;
+   * without it the browser tab holds signed state. `firestoreThreadStore(db)`,
+   * `postgresThreadStore(pool)`, `memoryThreadStore()`, or your own `ThreadStore`.
+   */
+  threads?: EngineOptions['threads'];
   /** Model prices per million tokens; usage entries then carry `costUsd`. */
   pricing?: EngineOptions['pricing'];
   /** OpenTelemetry tracer (`trace.getTracer('saydo')`): spans per model step and per action. */
   tracer?: EngineOptions['tracer'];
+  /** Central policy for every action call (OPA, Cedar, your RBAC). It can deny or add confirmation, never remove it. */
+  authorize?: EngineOptions['authorize'];
+  /** Large apps: find actions by meaning with an embedder (`{ embed: (texts) => vectors }`). */
+  search?: EngineOptions['search'];
+  /** Record each request for debugging and regression tests (replay with `replayPlanner`). */
+  record?: EngineOptions['record'];
   /** Passkey step-up for the riskiest approvals: `webauthn({ … })` from 'saydo/server'. */
   stepUp?: EngineOptions['stepUp'];
   /** Confirmations per request before further ones need step-up. Default 5. */
@@ -300,9 +313,12 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
         error: {
           status: 'error',
           message: 'No durable grant store is configured for gated capabilities.',
-          fix: "Set `store` in saydo.config.ts (Redis/Postgres adapter), or `store: 'memory'` for a single-instance server.",
+          fix: "Set `store` in saydo.config.ts (postgresGrantStore, redisGrantStore or firestoreGrantStore), or `store: 'memory'` for a single-instance server.",
         },
       };
+    }
+    if (!dev && (options.threads as { durable?: boolean } | undefined)?.durable === false) {
+      console.warn('[saydo] memoryThreadStore() keeps conversations in this process only. Use firestoreThreadStore or postgresThreadStore with more than one instance.');
     }
     let planner = options.planner ?? (options.model ? aiSdkPlanner({ model: options.model }) : undefined);
     if (!planner) {
@@ -333,6 +349,10 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
       external: options.external,
       pricing: options.pricing,
       tracer: options.tracer,
+      threads: options.threads,
+      authorize: options.authorize,
+      search: options.search,
+      record: options.record,
       deploymentId: options.deploymentId ?? process.env.VERCEL_DEPLOYMENT_ID ?? process.env.NEXT_DEPLOYMENT_ID,
       onUsage: (entry) => {
         budget?.countTokens(entry.userId, entry.inputTokens + entry.outputTokens);
@@ -394,6 +414,17 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
     }
     if (typeof body.type === 'string' && body.type.startsWith('passkey-')) return passkeys(ready, user, body, request);
     if (body.type === 'grant-status') return json(await ready.engine.grantStatus(user, String(body.grantId ?? '')));
+    if (body.type === 'threads' || body.type === 'thread-open' || body.type === 'thread-delete') {
+      try {
+        const { conversations } = ready.engine;
+        if (body.type === 'threads') return json(await conversations.list(user, typeof body.limit === 'number' ? body.limit : undefined));
+        if (body.type === 'thread-open') return json(await conversations.open(user, String(body.threadId ?? ''), (body.client ?? {}) as never));
+        return json(await conversations.remove(user, String(body.threadId ?? '')));
+      } catch (error) {
+        console.error('[saydo] conversation store failed', error);
+        return problem(503, { status: 'error', message: 'Conversation storage is unavailable right now.', fix: 'Try again in a moment.', code: 'store_unavailable' });
+      }
+    }
     if (body.type === 'grant-approve') {
       return json(
         await ready.engine.approveDelegated(user, {

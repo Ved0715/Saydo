@@ -534,7 +534,7 @@ Built in this round:
   - an [IP-POLICY.md](../IP-POLICY.md) draft (CC BY 4.0 spec, OWFa 1.0 patent commitment, DCO, RFC process) and CONTRIBUTING.md
 - **Release engineering:** GitHub Actions CI (Node 20/22/24, real Redis, typecheck, tests, build, exports check, template sync, example builds, an npx install from tarballs). The release workflow publishes with `npm publish --provenance` on `v*` tags.
 
-Verified: 153 tests, a clean `tsc`, a clean package build, and all 17 exports resolving in plain Node.
+Verified: 153 tests at that point, a clean `tsc`, a clean package build, and all 17 exports resolving in plain Node.
 
 Still on the roadmap (🗺):
 
@@ -547,6 +547,30 @@ Still on the roadmap (🗺):
 - legal review of the IP policy
 
 **Next (user):** real-browser testing of both templates with a real model key.
+
+## 12. Update (2026-10-18): round 2, the "Next.js of AI" review and conversation storage
+
+Reviewed item by item in [HARDENING.md](HARDENING.md#round-2-the-nextjs-of-ai-review-and-conversation-storage). Built:
+
+- **Workflows:** `workflow({ steps })` composes actions with one consent decision and compensation (undo) on failure.
+- **Conversation storage plugins:** an optional `threads` store with `memoryThreadStore`, `postgresThreadStore` and `firestoreThreadStore`, plus `firestoreGrantStore`, so Firestore can be the only database. It adds a History panel, resume on any device, erasure, and a fallback to sealed browser state when the store is down.
+- **UI sync:** an automatic `refresh` after writes, and an `invalidate(...keys)` effect with `onInvalidate`.
+- **Permissions and integrity:**
+  - a central `authorize` policy (OPA/Cedar seam): deny or raise only, fail closed
+  - version-pinned approvals
+  - third-party tool descriptions labeled and capped
+- **Search, reliability and language:**
+  - meaning-based action search (`search: { embed }`) with a keyword fallback
+  - `record` plus `replayPlanner` for deterministic incident replay
+  - model failover (`model: [primary, backup]`)
+  - `locale` in the turn envelope
+- **SPEC:** §3.5–3.7, the §4 policy rule, §9.1 stored conversations, §9.2 offline (decided: no local consent profile), and manifest signing marked as not needed.
+- **CI:** a Firestore emulator job.
+
+Decisions:
+
+- The zero-config default stores nothing; databases are opt-in plugins, with no vendor default.
+- Streaming, speculative prefetch, a replay viewer and a non-TypeScript server implementation stay on the roadmap.
 
 ---
 

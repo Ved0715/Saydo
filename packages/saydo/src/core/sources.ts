@@ -46,6 +46,17 @@ function riskFor(map: RiskMap | undefined, name: string, fallback: Risk = 'destr
   return risk === 'reversible' ? 'write' : risk;
 }
 
+/**
+ * Descriptions written by third parties (MCP servers, OpenAPI specs) are a known injection
+ * channel ("tool poisoning"). They are labeled, flattened and capped; the model is told to use
+ * them only to understand the tool.
+ */
+export const THIRD_PARTY_PREFIX = '[Third-party description]';
+function thirdParty(text: string, trusted?: boolean): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return trusted ? flat.slice(0, 1000) : `${THIRD_PARTY_PREFIX} ${flat.slice(0, 500)}`;
+}
+
 function selected(options: SourceOptions, name: string): boolean {
   if (options.include && !options.include.includes(name)) return false;
   return !options.exclude?.includes(name);
@@ -128,6 +139,8 @@ export function aiTools(toolset: Record<string, Tool>, options: SourceOptions = 
 }
 
 export interface McpOptions extends SourceOptions {
+  /** The server is yours: show its tool descriptions without the third-party label. */
+  trustDescriptions?: boolean;
   url?: string;
   headers?: Record<string, string>;
   /** 'http' (default) or 'sse'. */
@@ -173,7 +186,7 @@ export function mcp(options: McpOptions): ToolSource {
         const hints = annotations.get(name);
         if (options.trustAnnotations && hints) fallback = hints.readOnlyHint ? 'read' : hints.destructiveHint === false ? 'write' : 'destructive';
         const id = options.prefix ? `${options.prefix}.${ID_SAFE(name)}` : ID_SAFE(name);
-        out.push(await fromAiTool(id, name, tool, riskFor(options.risk, name, fallback)));
+        out.push(await fromAiTool(id, name, tool, riskFor(options.risk, name, fallback), thirdParty(typeof tool.description === 'string' ? tool.description : name, options.trustDescriptions)));
       }
       return out;
     },
@@ -203,6 +216,8 @@ function deref(schema: unknown, root: Json, depth = 0): unknown {
 }
 
 export interface OpenAPIOptions extends SourceOptions {
+  /** The spec is yours: show its descriptions without the third-party label. */
+  trustDescriptions?: boolean;
   /** Base URL of the API. Default: the spec's first server, resolved against the request origin. */
   baseUrl?: string;
   /** Risk per HTTP method for unmapped operations, e.g. { GET: 'read' }. */
@@ -277,7 +292,7 @@ export function fromOpenAPI(spec: Json | string | URL, options: OpenAPIOptions =
           out.push(
             jsonCapability({
               id: `${options.prefix ? `${options.prefix}.` : ''}${ID_SAFE(operationId)}`,
-              describe: String(op.summary ?? op.description ?? `${upper} ${route}`),
+              describe: thirdParty(String(op.summary ?? op.description ?? `${upper} ${route}`), options.trustDescriptions),
               risk,
               jsonSchema: { type: 'object', properties, required, additionalProperties: false },
               run: async (args, ctx) => {

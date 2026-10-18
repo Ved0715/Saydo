@@ -57,4 +57,9 @@ export const STYLES = `
 .saydo-pill{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--saydo-surface);color:var(--saydo-muted);border:1px solid var(--saydo-border)}
 .saydo-pre{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace;background:var(--saydo-surface);border-radius:8px;padding:8px;max-height:220px;overflow:auto;margin:0}
 @media (max-width:480px){.saydo-launcher{right:16px;bottom:16px}.saydo-toasts{left:16px;right:16px}.saydo-overlay{padding-top:16px}}
+.saydo-history .saydo-option{padding:0;align-items:stretch}
+.saydo-history .saydo-option button{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;padding:8px 10px;border-radius:8px}
+.saydo-history .saydo-option button:first-child{flex:1;display:flex;justify-content:space-between;gap:12px;text-align:left;min-width:0}
+.saydo-history .saydo-option button:first-child span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saydo-history .saydo-option[aria-current="true"]{background:var(--saydo-surface)}
 `;

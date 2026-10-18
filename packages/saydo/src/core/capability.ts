@@ -72,6 +72,8 @@ export type Capability<S extends z.ZodObject = any> = CapabilityDefinition<S> & 
   readonly [CAPABILITY_BRAND]: true;
   readonly kind: 'server' | 'client';
   readonly resolvedRisk: Risk;
+  /** Workflows: the step titles, shown on the confirm card. */
+  readonly steps?: readonly string[];
 };
 
 const ID_PATTERN = /^[a-z][a-z0-9]*([._-][a-z0-9]+)*$/i;
@@ -229,4 +231,6 @@ export const navigate = (href: string, options: { replace?: boolean } = {}): Eff
   ...options,
 });
 export const refresh = (): Effect => ({ type: 'refresh' });
+/** Ask the browser to refetch these client-cache keys (wire them with `onInvalidate` on the provider). */
+export const invalidate = (...keys: string[]): Effect => ({ type: 'invalidate', keys });
 export const toast = (message: string): Effect => ({ type: 'toast', message });

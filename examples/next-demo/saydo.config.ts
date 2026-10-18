@@ -2,7 +2,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { defineConfig } from 'saydo/config';
-import { aiTools, mockPlanner } from 'saydo/server';
+import { aiTools, memoryThreadStore, mockPlanner } from 'saydo/server';
 import { getUser } from '@/lib/auth';
 
 // Any AI SDK tool (or MCP server, OpenAPI spec, tRPC router) can be plugged in.
@@ -29,8 +29,12 @@ export default defineConfig({
   see: { page: true },
   act: { elements: 'all', defaultRisk: 'write' },
   tools: [aiTools({ convertCurrency }, { risk: 'read' })],
-  // Single-process demo. Use a durable store (Redis/Postgres) for multiple instances.
+  // Single-process demo. Use a durable store (Postgres, Redis or Firestore) for multiple instances.
   store: 'memory',
+  // Conversation history and resume (the palette shows "History"). For production:
+  // firestoreThreadStore(getFirestore()) or postgresThreadStore(pool). Remove it to keep
+  // conversations in the browser tab only.
+  threads: memoryThreadStore(),
   // Let outside agents (MCP) use actions marked `expose: { external: true }`:
   // external: { authenticate: (request) => userFromToken(request), approvals: 'delegated' },
 });

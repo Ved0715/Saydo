@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:firestore": "cd packages/saydo/test && npx --yes firebase-tools@15.32.1 emulators:exec --only firestore --project demo-saydo \"cd ../../.. && pnpm vitest run packages/saydo/test/stores.test.ts\"",
     "templates": "node packages/create-saydo-app/scripts/sync-templates.mjs",
     "demo": "pnpm --filter next-demo dev",
     "demo:react": "pnpm --filter vite-demo dev",

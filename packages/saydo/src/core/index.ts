@@ -11,6 +11,7 @@ export {
   type ServerAction,
   navigate,
   refresh,
+  invalidate,
   toast,
   type Capability,
   type CapabilityDefinition,
@@ -62,3 +63,4 @@ export {
   type LockDiff,
 } from './lockfile';
 export type * from './protocol';
+export { workflow, type WorkflowDefinition, type WorkflowStep } from './workflow';

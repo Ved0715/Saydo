@@ -57,6 +57,8 @@ export interface Receipt {
 export type Effect =
   | { type: 'navigate'; href: string; replace?: boolean; title?: string }
   | { type: 'refresh' }
+  /** Client data caches to refetch (React Query / SWR keys); the app maps keys with `onInvalidate`. */
+  | { type: 'invalidate'; keys: string[] }
   | { type: 'toast'; message: string }
   | { type: 'undo'; token: string; label: string; expiresAt: number };
 

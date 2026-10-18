@@ -11,6 +11,7 @@ export {
   entityRef,
   navigate,
   refresh,
+  invalidate,
   toast,
   serverAction,
   collectCapabilities,
@@ -34,3 +35,4 @@ export {
   type PageElement,
   type PageSnapshot,
 } from './core/index';
+export { workflow, type WorkflowDefinition, type WorkflowStep } from './core/workflow';
