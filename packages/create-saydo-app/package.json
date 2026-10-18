@@ -17,6 +17,6 @@
     "sync": "node scripts/sync-templates.mjs"
   },
   "engines": {
-    "node": ">=20.9"
+    "node": ">=22"
   }
 }

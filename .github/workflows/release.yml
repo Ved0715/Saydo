@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -23,7 +23,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y redis-server
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm vitest run --reporter=default --reporter=github-actions
       - run: pnpm build
       - run: node packages/saydo/scripts/check-exports.mjs
       - name: Tag matches package versions
