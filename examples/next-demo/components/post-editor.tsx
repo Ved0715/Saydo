@@ -1,8 +1,8 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
-import { CapabilityError } from 'saydo';
-import { useAction, useSaydoContext, useCapability } from 'saydo/next/client';
+import { CapabilityError } from 'saydo-js';
+import { useAction, useSaydoContext, useCapability } from 'saydo-js/next/client';
 import { publishPost } from '@/capabilities/shared';
 import type { PostRecord } from '@/lib/types';
 

@@ -10,7 +10,7 @@ import { ConfirmCard } from './ui';
  * trusted click, passkey when required.
  *
  *   // app/saydo/approve/[id]/page.tsx
- *   export { default } from 'saydo/next/approve';
+ *   export { default } from 'saydo-js/next/approve';
  */
 export function SaydoApproval({ grantId }: { grantId: string }) {
   const runtime = useRuntime();

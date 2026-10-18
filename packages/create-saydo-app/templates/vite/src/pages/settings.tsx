@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { z } from 'zod';
-import { useAction } from 'saydo/react-router';
+import { useAction } from 'saydo-js/react-router';
 
 export function Settings() {
   const [params, setParams] = useSearchParams();

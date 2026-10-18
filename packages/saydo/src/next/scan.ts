@@ -96,7 +96,7 @@ function isServerActionFile(file: string): boolean {
     return false;
   }
   const body = head.replace(/^\s*(\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*/, '');
-  return /^['"]use server['"]/.test(body) && /\bserverAction\s*\(/.test(head) && /from\s+['"]saydo['"]/.test(head);
+  return /^['"]use server['"]/.test(body) && /\bserverAction\s*\(/.test(head) && /from\s+['"]saydo(?:-js)?['"]/.test(head);
 }
 
 /** Scan an App Router project for pages, colocated nav metadata and capability modules. */

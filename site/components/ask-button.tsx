@@ -1,5 +1,5 @@
 'use client';
-import { useSaydo } from 'saydo/next/client';
+import { useSaydo } from 'saydo-js/next/client';
 
 export function AskButton() {
   const ai = useSaydo();

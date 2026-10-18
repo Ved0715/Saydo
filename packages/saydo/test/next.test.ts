@@ -43,6 +43,16 @@ describe('App Router scanner', () => {
     expect(scan.warnings.some((w) => w.includes('settings') && w.includes('no page.tsx'))).toBe(true);
   });
 
+  it("finds 'use server' files that define serverAction() actions", () => {
+    touch('app/settings/actions.ts', "'use server';\nimport { serverAction } from 'saydo-js';\nexport const save = serverAction({ describe: 'Save', input: undefined as never }, async () => {});\n");
+    touch('app/other/actions.ts', "'use server';\nexport async function plain() {}\n");
+    const files = scanProject(root).capabilityFiles.map((f) => path.relative(root, f).split(path.sep).join('/'));
+    expect(files).toContain('app/settings/actions.ts');
+    expect(files).not.toContain('app/other/actions.ts');
+    fs.rmSync(path.join(root, 'app/settings/actions.ts'));
+    fs.rmSync(path.join(root, 'app/other'), { recursive: true });
+  });
+
   it('finds capability modules but not tests', () => {
     const files = scanProject(root).capabilityFiles.map((f) => path.relative(root, f).split(path.sep).join('/'));
     expect(files).toEqual(['app/billing/capabilities.ts', 'capabilities/nested/billing.tsx', 'capabilities/posts.ts']);

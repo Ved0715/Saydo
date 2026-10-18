@@ -1,6 +1,6 @@
 'use client';
 import { z } from 'zod';
-import { useAction } from 'saydo/next/client';
+import { useAction } from 'saydo-js/next/client';
 
 const sections = z.object({ section: z.enum(['playground', 'guide', 'features', 'top']) });
 

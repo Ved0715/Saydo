@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineCapability, entityRef } from 'saydo';
+import { defineCapability, entityRef } from 'saydo-js';
 import type { PostRecord } from '@/lib/types';
 
 /**

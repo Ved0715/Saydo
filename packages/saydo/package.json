@@ -1,7 +1,7 @@
 {
-  "name": "saydo",
+  "name": "saydo-js",
   "version": "0.1.0",
-  "description": "Say it. It's done. The AI-native framework for React and Next.js: your users can ask, and your app does it — everything they can see and do, with consent the model cannot bypass.",
+  "description": "Say it. It's done. The AI-native framework for React and Next.js: your users can ask, and your app does it \u2014 everything they can see and do, with consent the model cannot bypass.",
   "keywords": [
     "ai",
     "react",

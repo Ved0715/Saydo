@@ -1,4 +1,4 @@
-import { withGrant } from 'saydo/next/server';
+import { withGrant } from 'saydo-js/next/server';
 import { publishPost } from '@/capabilities/shared';
 import { getUser } from '@/lib/auth';
 import { getPost } from '@/lib/db';

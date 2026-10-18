@@ -1,6 +1,6 @@
 'use client';
 import type { ReactNode } from 'react';
-import { SaydoProvider } from 'saydo/next/client';
+import { SaydoProvider } from 'saydo-js/next/client';
 import { modelHeaders } from '@/lib/model-key';
 import { SiteActions } from './site-actions';
 

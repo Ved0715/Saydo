@@ -1,5 +1,5 @@
 import 'server-only';
-import { defineEntity } from 'saydo';
+import { defineEntity } from 'saydo-js';
 import { getPost, listPosts } from '@/lib/db';
 import type { PostRecord } from '@/lib/types';
 

@@ -95,7 +95,7 @@ export interface HandlerOptions {
   search?: EngineOptions['search'];
   /** Record each request for debugging and regression tests (replay with `replayPlanner`). */
   record?: EngineOptions['record'];
-  /** Passkey step-up for the riskiest approvals: `webauthn({ … })` from 'saydo/server'. */
+  /** Passkey step-up for the riskiest approvals: `webauthn({ … })` from 'saydo-js/server'. */
   stepUp?: EngineOptions['stepUp'];
   /** Confirmations per request before further ones need step-up. Default 5. */
   confirmBudget?: number;
@@ -280,7 +280,7 @@ export function syncLockfile(
   }
 }
 
-/** Build the handler from a registry. `saydo/next/route` and the Vite plugin do this for you. */
+/** Build the handler from a registry. `saydo-js/next/route` and the Vite plugin do this for you. */
 /** A route handler: `export const POST = createHandler(…)`. */
 export type SaydoHandler = (request: Request) => Promise<Response>;
 

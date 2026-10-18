@@ -25,7 +25,7 @@ export interface WithSaydoOptions {
 export const toolsPolicy = (agents: boolean | undefined) => (agents ? 'tools=(self)' : 'tools=()');
 
 const WATCHING = Symbol.for('saydo.watching');
-const PACKAGES = ['saydo'];
+const PACKAGES = ['saydo-js'];
 
 function watch(dir: string, options: WithSaydoOptions) {
   const g = globalThis as Record<symbol, unknown>;
@@ -59,7 +59,7 @@ function watch(dir: string, options: WithSaydoOptions) {
 
 /**
  * Wrap your Next config. Scans app/ and capabilities/ at startup, writes
- * `.saydo/registry.ts`, aliases `saydo/registry` to it, and transpiles the
+ * `.saydo/registry.ts`, aliases `saydo-js/registry` to it, and transpiles the
  * saydo packages. Nothing to run by hand.
  */
 export function withSaydo(nextConfig: NextConfig = {}, options: WithSaydoOptions = {}): NextConfig {
@@ -87,12 +87,12 @@ export function withSaydo(nextConfig: NextConfig = {}, options: WithSaydoOptions
       ...nextConfig.turbopack,
       resolveAlias: {
         ...nextConfig.turbopack?.resolveAlias,
-        'saydo/registry': `./${OUT_DIR}/${REGISTRY_FILE}`,
+        'saydo-js/registry': `./${OUT_DIR}/${REGISTRY_FILE}`,
       },
     },
     webpack(config, context) {
       config.resolve ??= {};
-      config.resolve.alias = { ...config.resolve.alias, 'saydo/registry': registryPath };
+      config.resolve.alias = { ...config.resolve.alias, 'saydo-js/registry': registryPath };
       return userWebpack ? userWebpack(config, context) : config;
     },
   };

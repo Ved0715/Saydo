@@ -10,7 +10,7 @@ import { registerWebMcpTools } from './webmcp';
 
 export interface SaydoProviderProps {
   children: ReactNode;
-  /** Router adapter. `saydo/next/client` wires the App Router for you. */
+  /** Router adapter. `saydo-js/next/client` wires the App Router for you. */
   router: RouterAdapter;
   /** Current pathname, so the runtime knows when a navigation has landed. */
   pathname: string;

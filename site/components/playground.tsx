@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { z } from 'zod';
-import { useAction, useCapability, useSaydo, useSaydoContext } from 'saydo/next/client';
+import { useAction, useCapability, useSaydo, useSaydoContext } from 'saydo-js/next/client';
 import { addTask, removeTasks } from '@/capabilities/board';
 import { setModelChoice, useModelChoice, type Provider } from '@/lib/model-key';
 

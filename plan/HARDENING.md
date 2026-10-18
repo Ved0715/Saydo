@@ -103,9 +103,9 @@ Test counts refer to `pnpm test` (114 passing).
 
 | Item | Status |
 |---|---|
-| Delegated out-of-band approval for MCP, voice and external clients | 🔧 `external.approvals: 'delegated'`: a gated agent call stages a grant with its `origin` and returns an approval URL. The user approves on the app's authenticated page (`saydo/next/approve`, the same server-built card, a trusted click, passkey when required), and the agent polls `saydo_approval_status`. Only the grant's own user can read or approve it, exactly once. The audit records the origin. This is the URL-mode elicitation pattern, and it needs no client support. |
+| Delegated out-of-band approval for MCP, voice and external clients | 🔧 `external.approvals: 'delegated'`: a gated agent call stages a grant with its `origin` and returns an approval URL. The user approves on the app's authenticated page (`saydo-js/next/approve`, the same server-built card, a trusted click, passkey when required), and the agent polls `saydo_approval_status`. Only the grant's own user can read or approve it, exactly once. The audit records the origin. This is the URL-mode elicitation pattern, and it needs no client support. |
 | Annotations are hints | ✅ Inbound MCP hints never lower risk unless `trustAnnotations`. |
-| Non-interactive callers | 🔧 MCP server (`saydo/next/mcp`, `createMcpHandler`): JSON-RPC over Streamable HTTP, `authenticate` required (otherwise 404, and 401 with `WWW-Authenticate` when there is no user). Only `expose.external` actions are listed, `never` never is, ids are checked through `entity.get`, and gated calls are refused unless delegated approval is on. Tested with the real AI SDK MCP client. |
+| Non-interactive callers | 🔧 MCP server (`saydo-js/next/mcp`, `createMcpHandler`): JSON-RPC over Streamable HTTP, `authenticate` required (otherwise 404, and 401 with `WWW-Authenticate` when there is no user). Only `expose.external` actions are listed, `never` never is, ids are checked through `entity.get`, and gated calls are refused unless delegated approval is on. Tested with the real AI SDK MCP client. |
 
 ### 9. Privacy and compliance
 
@@ -147,7 +147,7 @@ Test counts refer to `pnpm test` (114 passing).
 | **Production blockers:** idempotent execution, atomic grants, server-authoritative risk/threads/grants, injection gate, exfiltration guards, tenant isolation | Met (✅ + 🔧). Durable stores: Postgres 🔧, Redis 🔧. |
 | **Scale blockers:** deploy skew, store contention, caching-aware cost, budgets, graceful degradation | Met (🔧 `deploymentId`, `pricing` → `costUsd`, tracing) |
 | **External reach:** delegated approval, canonical approval view | Met: canonical view ✅; delegated approval, MCP server and WebMCP 🔧 |
-| **Standard 1.0:** IP policy, must-ignore extensibility, i18n model, a second implementation | 🔧 [IP-POLICY.md](../IP-POLICY.md) draft (spec under CC BY 4.0 with an OWFa 1.0 patent commitment, DCO, RFC process). 🔧 SPEC §14 versioning: `protocolVersion`, must-ignore, `x-` extensions. 🔧 A framework-free client (`saydo/dom`). 🗺 A second *server* implementation in another language before 1.0, and legal review of the IP policy. |
+| **Standard 1.0:** IP policy, must-ignore extensibility, i18n model, a second implementation | 🔧 [IP-POLICY.md](../IP-POLICY.md) draft (spec under CC BY 4.0 with an OWFa 1.0 patent commitment, DCO, RFC process). 🔧 SPEC §14 versioning: `protocolVersion`, must-ignore, `x-` extensions. 🔧 A framework-free client (`saydo-js/dom`). 🗺 A second *server* implementation in another language before 1.0, and legal review of the IP policy. |
 
 ---
 
@@ -165,7 +165,7 @@ The analysis says "do anything with AI" is the wrong promise. Saydo never made t
 |---|---|---|
 | 1 Composition | Multi-step requests need a typed home, not prompt-invented control flow | 🔧 `workflow({ steps })`: a developer-declared order and data flow, and one consent decision on a card listing every step. Its risk is at least the riskiest step's. Completed steps are undone in reverse on failure, and the receipt says which steps stay done. The model can still chain separate actions; each gated one confirms (✅), and calls in one step are batched into one card (✅). |
 | 2 Discovery at scale | Retrieval over thousands of actions, with a deterministic fallback | ✅ `maxTools` scoping plus `find_capability`. 🔧 `search: { embed }` ranks actions by meaning, both for the surfaced set and inside `find_capability`. Descriptions are embedded once per process. Exact keyword hits come first, and embedder failures fall back to keywords. |
-| 3 RSC / caches | AI writes must invalidate caches | 🔧 Every successful non-read server action now adds `refresh` (`router.refresh()` in Next, an event in React Router). 🔧 `invalidate(...keys)` effect plus `onInvalidate` on every provider and on `saydo/dom`, plus a `saydo:invalidate` DOM event, for React Query, SWR and stores. Handlers run in a Next route handler, so `revalidatePath` / `revalidateTag` work as usual. |
+| 3 RSC / caches | AI writes must invalidate caches | 🔧 Every successful non-read server action now adds `refresh` (`router.refresh()` in Next, an event in React Router). 🔧 `invalidate(...keys)` effect plus `onInvalidate` on every provider and on `saydo-js/dom`, plus a `saydo:invalidate` DOM event, for React Query, SWR and stores. Handlers run in a Next route handler, so `revalidatePath` / `revalidateTag` work as usual. |
 | | Server Components can't register capabilities | ✳ Declarations are isomorphic (`saydo`), handlers are `server-only` modules found by the build, and mounting (`useAction`) is client-only. Verified by real `next build` runs of both templates. |
 | | `useOptimistic` and AI writes | ✳ AI writes are never optimistic: effects apply only after the server receipt, so there is nothing to reconcile. |
 | | State managers | 🔧 `onInvalidate` is the one binding they need (one line for TanStack Query). |
@@ -228,7 +228,7 @@ Date: 2026-10-18. This review read the actual code and was precise, so most find
 
 | # | Finding | Verdict | Fix |
 |---|---|---|---|
-| S1 | Without `getUser` every visitor was `anonymous`, sharing grants, stored conversations and limits | ✅ Confirmed, and worse than stated: the rate limit was shared by all visitors | 🔧 Each browser gets its own sealed `saydo_visitor` identity (HttpOnly, SameSite=Lax, Secure on https). Cookie-less clients are also limited per client IP (the platform proxy header, or the socket address passed out-of-band by `saydo/node`, never a forgeable header). Production refuses data-changing server actions and stored conversations without `getUser` unless `anonymous: true`, with code `no_user` and a fix. |
+| S1 | Without `getUser` every visitor was `anonymous`, sharing grants, stored conversations and limits | ✅ Confirmed, and worse than stated: the rate limit was shared by all visitors | 🔧 Each browser gets its own sealed `saydo_visitor` identity (HttpOnly, SameSite=Lax, Secure on https). Cookie-less clients are also limited per client IP (the platform proxy header, or the socket address passed out-of-band by `saydo-js/node`, never a forgeable header). Production refuses data-changing server actions and stored conversations without `getUser` unless `anonymous: true`, with code `no_user` and a fix. |
 | S2 | `bulkCount` misses filter-shaped inputs | ✅ Confirmed | 🔧 `blastRadius(input, { user })` on any capability. It drives tier 3 (step-up), the typed count, and an "Affects N records" line on the card, for the assistant and for agents. Errors count as unlimited (fail closed). |
 | S3 | Taint does not raise the tier | ✅ Confirmed (round 1 had declined it as confirm fatigue) | 🔧 Narrowed so it doesn't cause fatigue. A request is tainted only by *strong* signals: developer-marked untrusted page regions (`data-saydo-untrusted`, sent as ⟦…⟧), results of imported tools (MCP, OpenAPI, AI SDK), and actions declared `untrustedResults`. Tainted requests cannot auto-run reversible steps; they confirm, and the card says why. Taint resets with the next user message. `taint: 'off'` opts out. |
 | S4 | Are third-party *results* spotlighted? | ✅ Confirmed gap: only descriptions were labeled | 🔧 Untrusted results carry `receipt.untrusted` and reach the model as `<untrusted>…</untrusted>` text, with angle brackets neutralized and the length capped. `trusted: true` per source; tRPC (your router) is trusted by default. |
@@ -250,7 +250,7 @@ Date: 2026-10-18. This review read the actual code and was precise, so most find
 |---|---|
 | Per-request model | 🔧 `model: ({ user, route }) => model \| [primary, backup]`. |
 | Per-tenant or bring-your-own key | 🔧 Covered by the same hook: return a provider created with that tenant's key. You judged a dedicated feature unnecessary, and none is needed. |
-| Streaming | 🔧 The AI SDK planner streams with `streamText`. The handler answers `stream: true` requests with NDJSON (text events, then exactly one authoritative result), and the provider and `saydo/dom` render the reply as it is written (`stream={false}` to opt out). Failover happens only before any text is shown. A dropped stream is retried by `requestId` and gets the stored result. |
+| Streaming | 🔧 The AI SDK planner streams with `streamText`. The handler answers `stream: true` requests with NDJSON (text events, then exactly one authoritative result), and the provider and `saydo-js/dom` render the reply as it is written (`stream={false}` to opt out). Failover happens only before any text is shown. A dropped stream is retried by `requestId` and gets the stored result. |
 | Per-request config | 🔧 `instructions: ({ user, route }) => …`. |
 
 **Still open:** a measured token-cost comparison of tool search vs prompt caching under real load. It needs a real provider, real traffic and a budget, so it belongs to the testing phase; `onUsage`, `pricing` and `tracer` produce the numbers.
@@ -261,7 +261,7 @@ Date: 2026-10-18. This review read the actual code and was precise, so most find
 
 | # | Suggestion | Result |
 |---|---|---|
-| 1 | Streaming with visible steps | 🔧 Text streamed in round 3; now each step is also streamed as it starts ("Opening Billing…", "Creating a draft…"), shown as a live status line in the palette and in `saydo/dom`. |
+| 1 | Streaming with visible steps | 🔧 Text streamed in round 3; now each step is also streamed as it starts ("Opening Billing…", "Creating a draft…"), shown as a live status line in the palette and in `saydo-js/dom`. |
 | 2 | Answer "how do I…" from the app itself | 🔧 `app_guide` tool, built from three sources: `knowledge.docs` (your how-tos, static or per request), a guide generated from routes, page titles and action descriptions (where each lives, what needs confirmation, workflow steps), and the UI actions on the current page. The assistant explains the steps, then offers to do them. `knowledge.guide: false` turns off the generated part. The demo planner uses it too. |
 | 3 | Ask instead of guess | 🔧 `ask_user` tool: one short question with 2–6 options, rendered as clickable choices. The turn ends and the click is the next message. `act.clarify: false` turns it off. |
 | 4 | A wider instant path | 🔧 Developer-declared `phrases` on UI actions run in the browser with no model call. "undo that", "go back" and "new chat" are instant. Navigation by page name already was. |

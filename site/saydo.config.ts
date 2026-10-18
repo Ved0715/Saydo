@@ -1,7 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { defineConfig } from 'saydo/config';
-import { aiSdkPlanner, mockPlanner, type Planner, type PlannerOutput } from 'saydo/server';
+import { defineConfig } from 'saydo-js/config';
+import { aiSdkPlanner, mockPlanner, type Planner, type PlannerOutput } from 'saydo-js/server';
 
 const demo = mockPlanner();
 
@@ -54,7 +54,7 @@ export default defineConfig({
     name: 'the Saydo website',
     about: 'Saydo is an AI-native framework for React and Next.js. This site has a playground board (a launch checklist) and a getting-started guide.',
     docs: [
-      { title: 'Install Saydo', text: 'Run npx create-saydo-app my-app, then npm run dev and press Cmd+K. In an existing app, run npx saydo init.', keywords: ['start', 'setup', 'create', 'new app'] },
+      { title: 'Install Saydo', text: 'Run npx create-saydo-app my-app, then npm run dev and press Cmd+K. In an existing app, run npx saydo-js init.', keywords: ['start', 'setup', 'create', 'new app'] },
       { title: 'Use your own model', text: 'Pick a provider in the playground panel and paste your API key. It is sent only with your requests and never stored.', keywords: ['api key', 'llm', 'anthropic', 'openai'] },
       { title: 'Read the docs', text: 'The full documentation is the README on GitHub: github.com/Ved0715/Saydo.', keywords: ['documentation', 'github', 'readme'] },
     ],

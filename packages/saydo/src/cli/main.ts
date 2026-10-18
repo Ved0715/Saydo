@@ -94,26 +94,26 @@ function init(dir: string, flags: Args['flags']): number {
     }
     const nextConfig = firstExisting(dir, ['next.config.ts', 'next.config.mjs', 'next.config.mts', 'next.config.js']);
     if (!nextConfig) {
-      write(path.join(dir, 'next.config.ts'), "import { withSaydo } from 'saydo/next';\n\nexport default withSaydo({});\n", changes, 'created');
+      write(path.join(dir, 'next.config.ts'), "import { withSaydo } from 'saydo-js/next';\n\nexport default withSaydo({});\n", changes, 'created');
     } else {
       const next = wrapNextConfig(fs.readFileSync(nextConfig, 'utf8'));
       if (next) write(nextConfig, next, changes, 'wrapped with withSaydo()');
-      else manual.push(`Wrap your Next config: ${cyan("export default withSaydo(nextConfig)")} (import from 'saydo/next'). CommonJS configs: rename to next.config.mjs first.`);
+      else manual.push(`Wrap your Next config: ${cyan("export default withSaydo(nextConfig)")} (import from 'saydo-js/next'). CommonJS configs: rename to next.config.mjs first.`);
     }
     const layout = firstExisting(appDir, ['layout.tsx', 'layout.jsx', 'layout.js']);
     const updated = layout ? addProviderToLayout(fs.readFileSync(layout, 'utf8')) : null;
     if (layout && updated) write(layout, updated, changes, 'added <SaydoProvider> to');
-    else manual.push(`In your root layout, wrap ${cyan('{children}')} with ${cyan('<SaydoProvider>')} from 'saydo/next/client'.`);
+    else manual.push(`In your root layout, wrap ${cyan('{children}')} with ${cyan('<SaydoProvider>')} from 'saydo-js/next/client'.`);
     const route = path.join(appDir, 'api', 'saydo', 'route.ts');
     if (!fs.existsSync(route)) write(route, ROUTE_FILE, changes, 'created');
   } else if (framework === 'vite') {
     const viteConfig = firstExisting(dir, ['vite.config.ts', 'vite.config.mts', 'vite.config.js', 'vite.config.mjs']);
     const updated = viteConfig ? addVitePlugin(fs.readFileSync(viteConfig, 'utf8')) : null;
     if (viteConfig && updated) write(viteConfig, updated, changes, 'added saydo() to');
-    else manual.push(`Add ${cyan('saydo()')} from 'saydo/vite' to your Vite plugins.`);
+    else manual.push(`Add ${cyan('saydo()')} from 'saydo-js/vite' to your Vite plugins.`);
     if (!firstExisting(dir, ['saydo.routes.ts', 'src/saydo.routes.ts'])) write(path.join(dir, 'saydo.routes.ts'), VITE_ROUTES_FILE, changes, 'created');
     manual.push(
-      `Render ${cyan('<SaydoProvider>')} from 'saydo/react-router' inside your router (e.g. around <Outlet /> in the root layout route).`,
+      `Render ${cyan('<SaydoProvider>')} from 'saydo-js/react-router' inside your router (e.g. around <Outlet /> in the root layout route).`,
       `List your pages in ${cyan('saydo.routes.ts')}.`,
     );
   } else {
@@ -131,7 +131,7 @@ function init(dir: string, flags: Args['flags']): number {
     changes.push(`${green('✓')} ignored ${dim('.saydo')} in .gitignore`);
   }
 
-  const deps = ['saydo', 'ai', 'zod'].filter((d) => !pkg.dependencies?.[d] && !pkg.devDependencies?.[d]);
+  const deps = ['saydo-js', 'ai', 'zod'].filter((d) => !pkg.dependencies?.[d] && !pkg.devDependencies?.[d]);
   const pm = packageManager(dir);
   console.log(`\n${bold('Saydo')} ${dim(`· ${framework === 'next' ? 'Next.js' : 'Vite + React'}`)}\n`);
   for (const line of changes) console.log(`  ${line}`);
@@ -267,7 +267,7 @@ async function doctor(dir: string, flags: Args['flags']): Promise<number> {
   const version = (name: string) => String(pkg?.dependencies?.[name] ?? pkg?.devDependencies?.[name] ?? '');
   checks.push([Boolean(pkg), 'package.json found']);
   checks.push([framework !== 'unknown', `framework: ${framework === 'next' ? 'Next.js' : framework === 'vite' ? 'Vite + React' : 'not detected'}`]);
-  checks.push([Boolean(version('saydo')), 'saydo installed']);
+  checks.push([Boolean(version('saydo-js')), 'saydo-js installed']);
   checks.push([Boolean(version('ai')), 'ai (AI SDK) installed']);
   if (framework === 'next') {
     const config = firstExisting(dir, ['next.config.ts', 'next.config.mjs', 'next.config.mts', 'next.config.js']);

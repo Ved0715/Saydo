@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, Link, Outlet } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
-import { SaydoProvider } from 'saydo/react-router';
+import { SaydoProvider } from 'saydo-js/react-router';
 import { Feedback } from './pages/feedback';
 import { Home } from './pages/home';
 import { Profile } from './pages/profile';

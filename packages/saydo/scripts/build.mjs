@@ -11,7 +11,7 @@ const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 fs.rmSync('dist', { recursive: true, force: true });
 
 const deps = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {}), '@ai-sdk/mcp', 'server-only'];
-const external = [...deps, ...deps.map((d) => `${d}/*`), 'saydo/registry', 'virtual:saydo/handler', 'node:*'];
+const external = [...deps, ...deps.map((d) => `${d}/*`), 'saydo-js/registry', 'virtual:saydo/handler', 'node:*'];
 
 const common = {
   bundle: true,

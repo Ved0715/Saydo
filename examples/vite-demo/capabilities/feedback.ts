@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { action, toast } from 'saydo';
+import { action, toast } from 'saydo-js';
 
 const inbox: Array<{ message: string; at: string }> = [];
 

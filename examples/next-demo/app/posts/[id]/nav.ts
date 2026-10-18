@@ -1,4 +1,4 @@
-import { defineRoute } from 'saydo';
+import { defineRoute } from 'saydo-js';
 import { Post } from '@/entities/post';
 
 // Binding [id] to the Post entity makes this route reachable by handle, and

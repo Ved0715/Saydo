@@ -136,7 +136,7 @@ export type Redaction = 'none' | 'basic' | 'strict' | ((text: string) => string)
 class PlannerFailure extends Error {}
 
 /**
- * Step-up verification for the riskiest approvals. `webauthn()` from 'saydo/server'
+ * Step-up verification for the riskiest approvals. `webauthn()` from 'saydo-js/server'
  * implements it with passkeys; you can plug in any second factor.
  */
 export interface StepUpOptions {

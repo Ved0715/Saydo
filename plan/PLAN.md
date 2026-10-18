@@ -484,7 +484,7 @@ Built in this repo: `packages/core`, `packages/react`, `packages/next`, `example
 The framework is now **Saydo** ("Say it. It's done."), shipped as one npm package `saydo` plus `create-saydo-app`. User decisions this round:
 
 - **Full freedom, the developer restricts.** The model sees the visible page and can operate every element by default. The developer limits it with attributes (`data-saydo-private`, `data-saydo="off"`, `data-saydo-risk`, `data-saydo-untrusted`) and config (`see`, `act`). Risk is never guessed: unannotated clicks confirm.
-- **Installable like Next.js:** `npx create-saydo-app my-app` (Next.js or Vite + React Router templates), `npx saydo init` for existing apps.
+- **Installable like Next.js:** `npx create-saydo-app my-app` (Next.js or Vite + React Router templates), `npx saydo-js init` for existing apps.
 - **A complete README** with how-to, advantages, safety model, CLI and API reference.
 
 Built since §9:
@@ -496,7 +496,7 @@ Built since §9:
 - `find_capability` tool search
 - `never` actions hidden from the model
 - Vite plugin + React Router provider + production Node server
-- `saydo.config.ts`, zero-boilerplate `export { POST } from 'saydo/next/route'`
+- `saydo.config.ts`, zero-boilerplate `export { POST } from 'saydo-js/next/route'`
 - lockfile with tool sources
 - CLI (`init`, `ask`, `inspect`, `actions`, `routes`, `doctor`), dev inspector
 - esbuild + d.ts build (ESM, a CJS `withSaydo` for `next.config` `require()`, a single `'use client'` client bundle)
@@ -522,13 +522,13 @@ Built in this round:
   - batched confirmations and a per-request `confirmBudget`
   - WebAuthn step-up with dependency-free WebCrypto verification, plus `usePasskeys` and passkey stores
 - **Agents:**
-  - `engine.invoke` / `approveDelegated` / `grantStatus`, and an MCP server (`saydo/next/mcp`, `createMcpHandler`) with delegated approval
-  - an approval page (`saydo/next/approve`, `<SaydoApproval>`)
+  - `engine.invoke` / `approveDelegated` / `grantStatus`, and an MCP server (`saydo-js/next/mcp`, `createMcpHandler`) with delegated approval
+  - an approval page (`saydo-js/next/approve`, `<SaydoApproval>`)
   - WebMCP registration (`<SaydoProvider agents>`)
 - **Operations:**
   - redaction, a hash-chained audit log, a circuit breaker and per-user budgets
   - OpenTelemetry-compatible `tracer`, `pricing` → `costUsd`, cached-token accounting, per-page token estimates in `saydo inspect`, and `deploymentId` in audit and manifest
-- **Reach:** `saydo/dom`, a framework-free client and UI (no React, about 18 KB gzip).
+- **Reach:** `saydo-js/dom`, a framework-free client and UI (no React, about 18 KB gzip).
 - **Standard:**
   - SPEC v0.2: delegated approval §6.5, step-up §6.6, agent requests §7.1, MCP server mapping §10, versioning and must-ignore §14
   - an [IP-POLICY.md](../IP-POLICY.md) draft (CC BY 4.0 spec, OWFa 1.0 patent commitment, DCO, RFC process) and CONTRIBUTING.md

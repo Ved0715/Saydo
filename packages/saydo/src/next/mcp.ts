@@ -1,11 +1,11 @@
-import * as registry from 'saydo/registry';
+import * as registry from 'saydo-js/registry';
 import { createMcpHandler } from '../core/mcp';
 
 /**
  * MCP endpoint for external agents:
  *
  *   // app/api/saydo/mcp/route.ts
- *   export { POST, GET, DELETE } from 'saydo/next/mcp';
+ *   export { POST, GET, DELETE } from 'saydo-js/next/mcp';
  */
 const handler = createMcpHandler(registry);
 export const POST = handler.POST;

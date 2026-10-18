@@ -1,6 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
-import { CapabilityError, defineCapability, navigate, refresh } from 'saydo';
+import { CapabilityError, defineCapability, navigate, refresh } from 'saydo-js';
 import { Post } from '@/entities/post';
 import { createPost as insertPost, db, listPosts } from '@/lib/db';
 

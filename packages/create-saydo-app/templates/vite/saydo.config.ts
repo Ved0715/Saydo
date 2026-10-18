@@ -1,6 +1,6 @@
 import { anthropic } from '@ai-sdk/anthropic';
-import { defineConfig } from 'saydo/config';
-import { mockPlanner } from 'saydo/server';
+import { defineConfig } from 'saydo-js/config';
+import { mockPlanner } from 'saydo-js/server';
 
 const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
 

@@ -1,4 +1,4 @@
-import * as registry from 'saydo/registry';
+import * as registry from 'saydo-js/registry';
 import { createHandler, type SaydoOptions } from '../core/handler';
 
 /**

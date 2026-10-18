@@ -1,0 +1,20 @@
+name: Feature request
+description: Something Saydo should do, or do differently.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The app, the user, and what they ask the assistant. Concrete examples help most.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Saydo to do?
+  - type: textarea
+    id: safety
+    attributes:
+      label: Does it touch consent or what the model sees?
+      description: If yes, how should risk, confirmation and untrusted text work? See "Rules every change follows" in CONTRIBUTING.md.

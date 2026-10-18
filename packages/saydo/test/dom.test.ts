@@ -21,7 +21,7 @@ function serverFetch(engine: Engine) {
 const settle = () => new Promise((r) => setTimeout(r, 10));
 const q = <T extends Element = HTMLElement>(selector: string) => document.querySelector(selector) as T | null;
 
-describe('saydo/dom', () => {
+describe('saydo-js/dom', () => {
   it('mounts the palette, opens with Cmd+K, and navigates from the page list', async () => {
     const { engine } = setup();
     const pushes: string[] = [];

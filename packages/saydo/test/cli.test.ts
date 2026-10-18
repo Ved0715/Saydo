@@ -33,7 +33,7 @@ describe('codemods', () => {
   it('wraps the common next.config shapes and refuses CommonJS', () => {
     const named = wrapNextConfig(`import type { NextConfig } from "next";\n\nconst nextConfig: NextConfig = {\n  reactStrictMode: true,\n};\n\nexport default nextConfig;\n`)!;
     expect(named).toContain('export default withSaydo(nextConfig);');
-    expect(named).toContain("import { withSaydo } from 'saydo/next';");
+    expect(named).toContain("import { withSaydo } from 'saydo-js/next';");
     const literal = wrapNextConfig(`export default {\n  images: { unoptimized: true },\n};\n`)!;
     expect(literal).toContain('export default withSaydo({\n  images: { unoptimized: true },\n});');
     expect(wrapNextConfig(`module.exports = { reactStrictMode: true };`)).toBeNull();
@@ -43,7 +43,7 @@ describe('codemods', () => {
   it('adds the provider inside <body> of a create-next-app layout', () => {
     const out = addProviderToLayout(CREATE_NEXT_APP_LAYOUT)!;
     expect(out).toContain('<SaydoProvider>{children}</SaydoProvider>');
-    expect(out).toContain("import { SaydoProvider } from 'saydo/next/client';");
+    expect(out).toContain("import { SaydoProvider } from 'saydo-js/next/client';");
     expect(out.indexOf("import { SaydoProvider }")).toBeGreaterThan(out.indexOf('import "./globals.css"'));
     expect(addProviderToLayout(out)).toBe(out);
     expect(addProviderToLayout('export default function L() { return null }')).toBeNull();
@@ -52,7 +52,7 @@ describe('codemods', () => {
   it('adds the Vite plugin', () => {
     const out = addVitePlugin(`import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\n\nexport default defineConfig({\n  plugins: [react()],\n})\n`)!;
     expect(out).toContain('plugins: [saydo(), react()]');
-    expect(out).toContain("import { saydo } from 'saydo/vite';");
+    expect(out).toContain("import { saydo } from 'saydo-js/vite';");
     expect(addVitePlugin(`export default { plugins: [] }`)).toContain('plugins: [saydo()]');
   });
 });
@@ -85,7 +85,7 @@ describe('saydo init', () => {
     spy.mockRestore();
     expect(fs.readFileSync(path.join(dir, 'next.config.ts'), 'utf8')).toContain('withSaydo(nextConfig)');
     expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toContain('<SaydoProvider>{children}</SaydoProvider>');
-    expect(fs.readFileSync(path.join(dir, 'app', 'api', 'saydo', 'route.ts'), 'utf8')).toContain("export { POST } from 'saydo/next/route';");
+    expect(fs.readFileSync(path.join(dir, 'app', 'api', 'saydo', 'route.ts'), 'utf8')).toContain("export { POST } from 'saydo-js/next/route';");
     expect(fs.readFileSync(path.join(dir, 'saydo.config.ts'), 'utf8')).toContain("appName: \"next-app\"");
     expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toContain('.saydo');
     // Idempotent.
@@ -127,7 +127,7 @@ describe('create-saydo-app', () => {
       expect(result.stdout).toContain('Next steps');
       const pkg = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
       expect(pkg.name).toBe(`created-${template}`);
-      expect(pkg.dependencies.saydo).toMatch(/^\^\d/);
+      expect(pkg.dependencies['saydo-js']).toMatch(/^\^\d/);
       expect(fs.existsSync(path.join(target, '.gitignore'))).toBe(true);
       expect(fs.readFileSync(path.join(target, 'README.md'), 'utf8').startsWith(`# created-${template}`)).toBe(true);
       expect(fs.existsSync(path.join(target, 'saydo.config.ts'))).toBe(true);

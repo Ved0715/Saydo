@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { pages } from 'saydo';
+import { pages } from 'saydo-js';
 
 // React Router has no file tree to scan, so declare the pages once (React Router paths).
 export default pages([

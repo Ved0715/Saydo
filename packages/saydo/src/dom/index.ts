@@ -64,7 +64,7 @@ const pageLoads: RouterAdapter = {
 /**
  * Saydo without React: plain DOM, any framework (Vue, Svelte, Solid, Angular, server-rendered pages).
  *
- *   import { createSaydo } from 'saydo/dom';
+ *   import { createSaydo } from 'saydo-js/dom';
  *   const saydo = createSaydo();
  *   saydo.action('theme.toggle', 'Switch between light and dark mode', () => toggleTheme());
  */

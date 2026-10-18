@@ -1,0 +1,27 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security problems (an action running without consent, data reaching the model that should not) go to SECURITY.md, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest saydo.config.ts and action that show it. A failing test using setup() from packages/saydo/test/fixtures.ts is ideal.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: saydo-js, Next.js or Vite, React, Node, and the model provider.
+    validations:
+      required: true

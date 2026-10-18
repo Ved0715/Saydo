@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { SaydoProvider } from 'saydo/next/client';
+import { SaydoProvider } from 'saydo-js/next/client';
 import './globals.css';
 
 export const metadata: Metadata = {

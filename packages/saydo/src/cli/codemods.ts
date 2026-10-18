@@ -37,7 +37,7 @@ export function wrapNextConfig(source: string): string | null {
     const expr = source.slice(exprStart, lastSemicolonOrEnd).trim();
     out = `${source.slice(0, start)}export default withSaydo(${expr});\n`;
   }
-  return addImport(out, "import { withSaydo } from 'saydo/next';");
+  return addImport(out, "import { withSaydo } from 'saydo-js/next';");
 }
 
 /** Root layout: wrap {children} inside <body> with <SaydoProvider>. */
@@ -52,7 +52,7 @@ export function addProviderToLayout(source: string): string | null {
     source.slice(0, childrenAt) +
     '<SaydoProvider>{children}</SaydoProvider>' +
     source.slice(childrenAt + '{children}'.length);
-  return addImport(out, "import { SaydoProvider } from 'saydo/next/client';");
+  return addImport(out, "import { SaydoProvider } from 'saydo-js/next/client';");
 }
 
 /** vite.config.*: add saydo() to the plugins array. */
@@ -63,15 +63,15 @@ export function addVitePlugin(source: string): string | null {
   const at = plugins.index + plugins[0].length;
   const rest = source.slice(at).trimStart();
   const out = `${source.slice(0, at)}${rest.startsWith(']') ? 'saydo()' : 'saydo(), '}${rest}`;
-  return addImport(out, "import { saydo } from 'saydo/vite';");
+  return addImport(out, "import { saydo } from 'saydo-js/vite';");
 }
 
 export const ROUTE_FILE = `// The whole assistant backend. Configuration lives in saydo.config.ts.
-export { POST } from 'saydo/next/route';
+export { POST } from 'saydo-js/next/route';
 `;
 
 export function configFile(appName: string): string {
-  return `import { defineConfig } from 'saydo/config';
+  return `import { defineConfig } from 'saydo-js/config';
 // import { anthropic } from '@ai-sdk/anthropic';
 
 export default defineConfig({
@@ -93,7 +93,7 @@ export default defineConfig({
 `;
 }
 
-export const VITE_ROUTES_FILE = `import { pages } from 'saydo';
+export const VITE_ROUTES_FILE = `import { pages } from 'saydo-js';
 
 // Pages the assistant may open (React Router paths). Add titles and aliases for better matching.
 export default pages([

@@ -2,7 +2,7 @@
 import { use } from 'react';
 import { SaydoApproval } from '../react/approval';
 
-/** Ready-made approval page: `export { default } from 'saydo/next/approve'` in app/saydo/approve/[id]/page.tsx. */
+/** Ready-made approval page: `export { default } from 'saydo-js/next/approve'` in app/saydo/approve/[id]/page.tsx. */
 export default function SaydoApprovePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   return (

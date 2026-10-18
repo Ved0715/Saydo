@@ -2,7 +2,7 @@
 // Built with `vite build --ssr server.ts`, so the virtual registry is bundled in.
 import http from 'node:http';
 import { POST } from 'virtual:saydo/handler';
-import { serveStatic, toNodeHandler } from 'saydo/node';
+import { serveStatic, toNodeHandler } from 'saydo-js/node';
 
 const api = toNodeHandler(POST);
 const files = serveStatic(new URL('../dist', import.meta.url));

@@ -1,7 +1,7 @@
 // The playground board's actions. No handlers here: the board implements them in the browser
 // with useCapability, so this file is safe to import from client components.
 import { z } from 'zod';
-import { action } from 'saydo';
+import { action } from 'saydo-js';
 
 export const addTask = action({
   id: 'board.add',

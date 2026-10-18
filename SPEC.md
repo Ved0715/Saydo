@@ -1,6 +1,6 @@
 # Saydo Protocol — Draft v0.2
 
-Status: working draft. Protocol version `0.2`. The reference implementation is the `saydo` package in `packages/saydo`. Contributions are covered by [IP-POLICY.md](IP-POLICY.md).
+Status: working draft. Protocol version `0.2`. The reference implementation is the `saydo-js` package in `packages/saydo`. Contributions are covered by [IP-POLICY.md](IP-POLICY.md).
 
 ## 1. Scope
 
@@ -381,5 +381,5 @@ A conforming implementation passes the reference suite (`packages/*/test`) or an
 - Manifest signing: not specified. The manifest is served same-origin over TLS by the server that also serves the code, so a signature adds no protection against the attacker who could alter it.
 - Multi-tab election.
 - MCP extension packaging for §6 (delegated approval as a standard elicitation profile).
-- A second host implementation before v1.0. The reference repository now has a framework-free client (`saydo/dom`) that exercises the turn protocol without React; a second *server* implementation (another language or runtime) is still needed.
+- A second host implementation before v1.0. The reference repository now has a framework-free client (`saydo-js/dom`) that exercises the turn protocol without React; a second *server* implementation (another language or runtime) is still needed.
 - Resolved since v0.1: durable grant stores (SQL compare-and-set and Redis Lua references, §6.3), the WebAuthn step-up profile (§6.6), request idempotency (§7.1), non-interactive callers (§6.5).

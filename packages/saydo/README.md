@@ -9,7 +9,7 @@ npx create-saydo-app my-app
 cd my-app && npm run dev        # open the app, press ⌘K
 ```
 
-Already have an app? Run `npx saydo init` inside it.
+Already have an app? Run `npx saydo-js init` inside it. (The framework is Saydo; its npm package is `saydo-js`.)
 
 ---
 
@@ -65,7 +65,7 @@ The pieces you will meet:
 11. [Your own UI](#11-your-own-ui)
 12. [Passkeys for the riskiest steps](#12-passkeys-for-the-riskiest-steps)
 13. [Agents outside your app (MCP, WebMCP)](#13-agents-outside-your-app-mcp-webmcp)
-14. [Without React (`saydo/dom`)](#14-without-react-saydodom)
+14. [Without React (`saydo-js/dom`)](#14-without-react-saydo-jsdom)
 15. [Conversations and storage](#15-conversations-and-storage)
 16. [Production](#16-production)
 17. [The safety model](#the-safety-model)
@@ -89,50 +89,50 @@ Both templates are complete demo apps you can explore and then trim down.
 ### An existing Next.js app (App Router, Next 15.5+)
 
 ```bash
-npx saydo init --install
+npx saydo-js init --install
 ```
 
 This makes three small edits and creates one config file:
 
 ```ts
 // next.config.ts
-import { withSaydo } from 'saydo/next';
+import { withSaydo } from 'saydo-js/next';
 export default withSaydo(nextConfig);
 ```
 
 ```tsx
 // app/layout.tsx
-import { SaydoProvider } from 'saydo/next/client';
+import { SaydoProvider } from 'saydo-js/next/client';
 // …
 <body><SaydoProvider>{children}</SaydoProvider></body>
 ```
 
 ```ts
 // app/api/saydo/route.ts
-export { POST } from 'saydo/next/route';
+export { POST } from 'saydo-js/next/route';
 ```
 
 ### An existing React app (Vite + React Router)
 
 ```bash
-npx saydo init --install
+npx saydo-js init --install
 ```
 
 ```ts
 // vite.config.ts
-import { saydo } from 'saydo/vite';
+import { saydo } from 'saydo-js/vite';
 export default defineConfig({ plugins: [react(), saydo()] });
 ```
 
 ```tsx
 // your root layout route
-import { SaydoProvider } from 'saydo/react-router';
+import { SaydoProvider } from 'saydo-js/react-router';
 <SaydoProvider><Outlet /></SaydoProvider>
 ```
 
 ```ts
 // saydo.routes.ts: the pages the assistant may open
-import { pages } from 'saydo';
+import { pages } from 'saydo-js';
 export default pages([
   { path: '/', title: 'Home' },
   { path: '/settings', title: 'Settings', aliases: ['preferences'] },
@@ -149,7 +149,7 @@ One file, grouped by the question each part answers. Only the first four options
 
 ```ts
 import { anthropic } from '@ai-sdk/anthropic';
-import { defineConfig } from 'saydo/config';
+import { defineConfig } from 'saydo-js/config';
 import { auth } from './lib/auth';
 
 export default defineConfig({
@@ -264,7 +264,7 @@ An action is a typed function the assistant can call. Put it in `capabilities/`.
 // capabilities/posts.ts
 import 'server-only';
 import { z } from 'zod';
-import { action, navigate, CapabilityError } from 'saydo';
+import { action, navigate, CapabilityError } from 'saydo-js';
 import { Post } from '@/entities/post';
 
 export const createPost = action({
@@ -317,7 +317,7 @@ Other options: `title`, `can(user)` (hidden from users who fail it), `scope: { r
 When a request needs several actions in a fixed order ("publish it and email the subscribers"), compose them. The steps, their order and the data flow are yours; the model only fills the input. The user approves once, on a card that lists every step:
 
 ```ts
-import { workflow } from 'saydo';
+import { workflow } from 'saydo-js';
 
 export const launchPost = workflow({
   describe: 'Publish a post and email its subscribers',
@@ -342,7 +342,7 @@ One function serves both your UI and the assistant:
 // app/settings/actions.ts
 'use server';
 import { z } from 'zod';
-import { serverAction } from 'saydo';
+import { serverAction } from 'saydo-js';
 
 export const updateSettings = serverAction(
   {
@@ -371,7 +371,7 @@ Entities let the assistant refer to *your* records without ever handling raw ids
 ```ts
 // entities/post.ts
 import 'server-only';
-import { entity } from 'saydo';
+import { entity } from 'saydo-js';
 
 export const Post = entity<PostRecord>({
   type: 'post',
@@ -394,7 +394,7 @@ Next.js pages are discovered from `app/` (route groups, parallel routes and inte
 ```ts
 // app/billing/nav.ts
 import { z } from 'zod';
-import { page } from 'saydo';
+import { page } from 'saydo-js';
 
 export default page({
   title: 'Billing',
@@ -414,7 +414,7 @@ export default page({ title: 'Post editor', params: { id: Post.param() } });
 
 ```tsx
 'use client';
-import { useAction, useSaydoContext } from 'saydo/next/client';   // or 'saydo/react-router'
+import { useAction, useSaydoContext } from 'saydo-js/next/client';   // or 'saydo-js/react-router'
 
 useAction('share.open', 'Open the share dialog', () => setOpen(true));
 
@@ -474,7 +474,7 @@ export const POST = withGrant(publishPost, handler, {
 
 ```ts
 import { tool } from 'ai';
-import { aiTools, mcp, fromOpenAPI, fromTRPC } from 'saydo/server';
+import { aiTools, mcp, fromOpenAPI, fromTRPC } from 'saydo-js/server';
 
 tools: [
   // Any MCP server. Tools default to 'destructive' unless you map them.
@@ -520,7 +520,7 @@ A click proves that an input event happened, not that a human made it, because b
 
 ```ts
 // saydo.config.ts
-import { webauthn, postgresPasskeyStore } from 'saydo/server';
+import { webauthn, postgresPasskeyStore } from 'saydo-js/server';
 
 export default defineConfig({
   act: {
@@ -555,7 +555,7 @@ export const refund = action({ describe: 'Refund an invoice', risk: 'destructive
 
 ```ts
 // app/api/saydo/mcp/route.ts
-export { POST, GET, DELETE } from 'saydo/next/mcp';
+export { POST, GET, DELETE } from 'saydo-js/next/mcp';
 ```
 
 ```ts
@@ -571,7 +571,7 @@ agents: {
 
 ```tsx
 // app/saydo/approve/[id]/page.tsx
-export { default } from 'saydo/next/approve';
+export { default } from 'saydo-js/next/approve';
 ```
 
 Or render `<SaydoApproval grantId={id} />` inside your own layout.
@@ -582,12 +582,12 @@ Pages are served with `Permissions-Policy: tools=()` by default (WebMCP's policy
 
 Agents pass plain record ids, and Saydo checks each one through your entity's `get`, so an agent can never reach another user's data. `never` actions are never listed.
 
-## 14. Without React (`saydo/dom`)
+## 14. Without React (`saydo-js/dom`)
 
 Vue, Svelte, Solid, Angular or server-rendered pages get the same palette, confirm card, undo toasts and page vision from a framework-free client (about 18 KB gzipped, no dependencies):
 
 ```ts
-import { createSaydo } from 'saydo/dom';
+import { createSaydo } from 'saydo-js/dom';
 
 const saydo = createSaydo();   // endpoint '/api/saydo'; full page loads unless you pass `router`
 saydo.action('theme.toggle', 'Switch between light and dark mode', () => toggleTheme());
@@ -596,7 +596,7 @@ saydo.guard(form.dirty ? 'You have an unsaved draft.' : null);
 // single-page apps: createSaydo({ router: { push: (href) => router.push(href) } }) and saydo.navigated() after route changes
 ```
 
-The server side is any fetch-style handler: `createHandler(registry)` from `saydo/handler`.
+The server side is any fetch-style handler: `createHandler(registry)` from `saydo-js/handler`.
 
 ## 15. Conversations and storage
 
@@ -605,7 +605,7 @@ By default nothing is stored: the conversation lives in the browser tab as signe
 ```ts
 // saydo.config.ts: pick any store, or write your own (7 small methods)
 import { getFirestore } from 'firebase-admin/firestore';
-import { firestoreThreadStore, firestoreGrantStore } from 'saydo/server';
+import { firestoreThreadStore, firestoreGrantStore } from 'saydo-js/server';
 
 export default defineConfig({
   conversations: { store: firestoreThreadStore(getFirestore()) },   // or postgresThreadStore(pool), memoryThreadStore()
@@ -635,7 +635,7 @@ Your own store implements `ThreadStore` (`get`, `save`, `append`, `transcript`, 
 - **Approval store:** for more than one server instance, use the durable Postgres store, which is atomic across instances (single-statement claims and compare-and-set):
 
 ```ts
-import { postgresGrantStore } from 'saydo/server';
+import { postgresGrantStore } from 'saydo-js/server';
 const store = postgresGrantStore(pool);   // pg.Pool, Neon, or anything with query(text, params)
 await store.migrate();                    // once (or run store.schema in your migrations)
 export default defineConfig({ store, /* … */ });
@@ -644,7 +644,7 @@ export default defineConfig({ store, /* … */ });
   Redis works the same way. Every operation is a single-key Lua script, so it is atomic and Redis Cluster safe, and keys expire on their own:
 
 ```ts
-import { redisGrantStore } from 'saydo/server';
+import { redisGrantStore } from 'saydo-js/server';
 const store = redisGrantStore({ eval: (script, keys, args) => redis.eval(script, { keys, arguments: args }) }); // node-redis; adapt for ioredis or Upstash
 ```
 
@@ -656,7 +656,7 @@ const store = redisGrantStore({ eval: (script, keys, args) => redis.eval(script,
 - **Reproducing incidents:** `observe: { record: (turn) => log.write(turn) }`, then in a test: `createEngine({ …, planner: replayPlanner(turns, { strict: true }) })`. `strict` fails when the app now offers the model different tools than when the turn happened.
 - **Model outages:** `model: [anthropic('claude-sonnet-5-5'), openai('gpt-5')]` fails over per step; after repeated failures the circuit breaker answers fast and the palette keeps working.
 - **Several instances:** use `limits: { store: redisLimitStore({ eval }) }` so rate limits and budgets are shared. The circuit breaker stays per instance on purpose: each instance stops calling a failing provider on its own evidence.
-- **Signed-out apps:** without `getUser`, visitors get an isolated identity from a signed, HttpOnly cookie. Cookie-less clients are also limited per IP, taken from your platform's proxy header (Vercel, Cloudflare, Netlify) or, with `saydo/node`, the socket address. On a bare server with no proxy, put a gateway in front for IP limits.
+- **Signed-out apps:** without `getUser`, visitors get an isolated identity from a signed, HttpOnly cookie. Cookie-less clients are also limited per IP, taken from your platform's proxy header (Vercel, Cloudflare, Netlify) or, with `saydo-js/node`, the socket address. On a bare server with no proxy, put a gateway in front for IP limits.
 - **Sealed state is encrypted** (AES-256-GCM, key derived from `SAYDO_SECRET`), so the browser can neither read nor alter the conversation state it carries.
 - **Tracing and cost:** pass `observe: { tracer: trace.getTracer('saydo') }` for OpenTelemetry spans, and `observe.pricing` to get `costUsd` per request in `onUsage`. `npx saydo inspect /page` and the dev inspector show the estimated input tokens per model step on each page.
 - **Limits and outages:** per-user `limits.perMinute` and `limits.perDay`. After repeated model failures a circuit breaker returns a fast `planner_unavailable` for 30 seconds, and the palette keeps working.
@@ -667,13 +667,13 @@ const store = redisGrantStore({ eval: (script, keys, args) => redis.eval(script,
 // server.ts (see the vite template)
 import http from 'node:http';
 import { POST } from 'virtual:saydo/handler';
-import { toNodeHandler, serveStatic } from 'saydo/node';
+import { toNodeHandler, serveStatic } from 'saydo-js/node';
 const api = toNodeHandler(POST);
 const files = serveStatic(new URL('../dist', import.meta.url));
 http.createServer((req, res) => (req.method === 'POST' && req.url?.startsWith('/api/saydo') ? api(req, res) : files(req, res))).listen(3000);
 ```
 
-Any fetch-style server (Hono, Bun, Deno, Workers) can use `createHandler(registry)` from `saydo/handler` directly.
+Any fetch-style server (Hono, Bun, Deno, Workers) can use `createHandler(registry)` from `saydo-js/handler` directly.
 
 ---
 
@@ -705,7 +705,7 @@ Any fetch-style server (Hono, Bun, Deno, Workers) can use `createHandler(registr
 ## CLI
 
 ```bash
-npx saydo init [--install]                 # add Saydo to an existing Next.js or Vite app
+npx saydo-js init [--install]                 # add Saydo to an existing Next.js or Vite app
 npx saydo ask "take me to billing" [--route /posts/1] [--url http://localhost:3000]
                                            # try a request against your dev server (never approves anything)
 npx saydo inspect /settings                # tools and risks the model gets on that page
@@ -721,21 +721,21 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 
 | Import | Exports |
 |---|---|
-| `saydo` | `action` (`defineCapability`), `serverAction`, `workflow`, `entity` (`defineEntity`), `entityRef`, `page` (`defineRoute`), `pages` (`defineRoutes`), `navigate`, `refresh`, `toast`, `invalidate`, `CapabilityError`, types |
-| `saydo/config` | `defineConfig` |
-| `saydo/server` | `mcp`, `aiTools`, `fromOpenAPI`, `fromTRPC`, `memoryLimitStore`, `redisLimitStore`, `postgresGrantStore`, `redisGrantStore`, `firestoreGrantStore`, `MemoryGrantStore`, `memoryThreadStore`, `postgresThreadStore`, `firestoreThreadStore`, `replayPlanner`, `webauthn`, `memoryPasskeyStore`, `postgresPasskeyStore`, `createAuditLog`, `verifyAuditChain`, `redactor`, `costOf`, `createEngine`, `mockPlanner`, `aiSdkPlanner`, `seal`/`unseal` |
-| `saydo/next` | `withSaydo` |
-| `saydo/next/client` | `SaydoProvider`, `useAction`, `useCapability`, `useSaydoContext`, `useSaydoGuard`, `useSaydo`, `usePasskeys`, `useConversations`, `SaydoApproval`, `ConfirmCard`, `AssistantUI` |
-| `saydo/next/server` | `createSaydoHandler`, `withGrant` |
-| `saydo/next/route` | `POST` |
-| `saydo/next/mcp` | `POST`, `GET`, `DELETE`: the MCP server |
-| `saydo/next/approve` | Ready-made approval page for agent requests |
-| `saydo/dom` | `createSaydo` (framework-free client and UI), `registerWebMcpTools`, `webauthnProof` |
-| `saydo/react-router` | `SaydoProvider`, `useSaydoRefresh`, and the same hooks |
-| `saydo/react` | Router-agnostic `SaydoProvider` (bring a `router` adapter) and hooks |
-| `saydo/vite` | `saydo()` plugin, `toNodeHandler`, `serveStatic` |
-| `saydo/handler` | `createHandler`, `createMcpHandler`, `withGrant`, `json` for any fetch-style server |
-| `saydo/node` | `toNodeHandler`, `serveStatic` |
+| `saydo-js` | `action` (`defineCapability`), `serverAction`, `workflow`, `entity` (`defineEntity`), `entityRef`, `page` (`defineRoute`), `pages` (`defineRoutes`), `navigate`, `refresh`, `toast`, `invalidate`, `CapabilityError`, types |
+| `saydo-js/config` | `defineConfig` |
+| `saydo-js/server` | `mcp`, `aiTools`, `fromOpenAPI`, `fromTRPC`, `memoryLimitStore`, `redisLimitStore`, `postgresGrantStore`, `redisGrantStore`, `firestoreGrantStore`, `MemoryGrantStore`, `memoryThreadStore`, `postgresThreadStore`, `firestoreThreadStore`, `replayPlanner`, `webauthn`, `memoryPasskeyStore`, `postgresPasskeyStore`, `createAuditLog`, `verifyAuditChain`, `redactor`, `costOf`, `createEngine`, `mockPlanner`, `aiSdkPlanner`, `seal`/`unseal` |
+| `saydo-js/next` | `withSaydo` |
+| `saydo-js/next/client` | `SaydoProvider`, `useAction`, `useCapability`, `useSaydoContext`, `useSaydoGuard`, `useSaydo`, `usePasskeys`, `useConversations`, `SaydoApproval`, `ConfirmCard`, `AssistantUI` |
+| `saydo-js/next/server` | `createSaydoHandler`, `withGrant` |
+| `saydo-js/next/route` | `POST` |
+| `saydo-js/next/mcp` | `POST`, `GET`, `DELETE`: the MCP server |
+| `saydo-js/next/approve` | Ready-made approval page for agent requests |
+| `saydo-js/dom` | `createSaydo` (framework-free client and UI), `registerWebMcpTools`, `webauthnProof` |
+| `saydo-js/react-router` | `SaydoProvider`, `useSaydoRefresh`, and the same hooks |
+| `saydo-js/react` | Router-agnostic `SaydoProvider` (bring a `router` adapter) and hooks |
+| `saydo-js/vite` | `saydo()` plugin, `toNodeHandler`, `serveStatic` |
+| `saydo-js/handler` | `createHandler`, `createMcpHandler`, `withGrant`, `json` for any fetch-style server |
+| `saydo-js/node` | `toNodeHandler`, `serveStatic` |
 
 ## FAQ
 
@@ -749,7 +749,7 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 
 **Do I need an API key to try it?** No. Without one, development uses a deterministic mock planner that understands common phrasing ("take me to…", "click…", "fill … with …", "delete this post"). It is also what you use in tests.
 
-**Pages Router? Remix? TanStack Router? Vue?** Today: Next.js App Router and React Router (with Vite) have full integrations. Any other React router works with `saydo/react` and a `router` adapter, and any other framework works with `saydo/dom`. The server side is `saydo/handler` on any fetch-style server.
+**Pages Router? Remix? TanStack Router? Vue?** Today: Next.js App Router and React Router (with Vite) have full integrations. Any other React router works with `saydo-js/react` and a `router` adapter, and any other framework works with `saydo-js/dom`. The server side is `saydo-js/handler` on any fetch-style server.
 
 **How do I test my assistant?** `npx saydo ask` against your dev server, `mockPlanner({ script })` for deterministic unit tests (including a fully compromised model that tries everything), and the lockfile for review.
 
@@ -757,7 +757,7 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 
 v0.1. Built and tested (221 tests, including Postgres concurrency on PGlite, a real Redis server, a software WebAuthn authenticator and the AI SDK MCP client, plus real builds of both templates installed from packed tarballs):
 
-- Next.js App Router, Vite + React Router, and framework-free `saydo/dom`
+- Next.js App Router, Vite + React Router, and framework-free `saydo-js/dom`
 - page vision and element actions
 - actions, Server Actions and entities
 - MCP, AI SDK tools, OpenAPI and tRPC as sources

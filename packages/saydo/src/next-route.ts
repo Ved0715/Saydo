@@ -1,2 +1,2 @@
-// app/api/saydo/route.ts → `export { POST } from 'saydo/next/route';`
+// app/api/saydo/route.ts → `export { POST } from 'saydo-js/next/route';`
 export { POST } from './next/route';

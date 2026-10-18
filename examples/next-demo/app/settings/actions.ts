@@ -1,7 +1,7 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { serverAction } from 'saydo';
+import { serverAction } from 'saydo-js';
 import { settings } from '@/lib/settings';
 
 // One function for the settings form AND the assistant ("turn off email notifications").

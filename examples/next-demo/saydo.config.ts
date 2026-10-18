@@ -1,8 +1,8 @@
 import { anthropic } from '@ai-sdk/anthropic';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { defineConfig } from 'saydo/config';
-import { aiTools, memoryThreadStore, mockPlanner } from 'saydo/server';
+import { defineConfig } from 'saydo-js/config';
+import { aiTools, memoryThreadStore, mockPlanner } from 'saydo-js/server';
 import { getUser } from '@/lib/auth';
 
 // Any AI SDK tool (or MCP server, OpenAPI spec, tRPC router) can be plugged in.

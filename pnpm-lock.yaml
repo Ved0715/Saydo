@@ -53,7 +53,7 @@ importers:
       react-dom:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
-      saydo:
+      saydo-js:
         specifier: workspace:*
         version: link:../../packages/saydo
       server-only:
@@ -93,7 +93,7 @@ importers:
       react-router:
         specifier: 8.4.0
         version: 8.4.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      saydo:
+      saydo-js:
         specifier: workspace:*
         version: link:../../packages/saydo
       zod:
@@ -184,7 +184,7 @@ importers:
       react-dom:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
-      saydo:
+      saydo-js:
         specifier: workspace:*
         version: link:../packages/saydo
       server-only:
