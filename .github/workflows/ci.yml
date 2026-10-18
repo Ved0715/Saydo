@@ -31,7 +31,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y redis-server
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm vitest run --reporter=default --reporter=github-actions
+      - name: Tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm vitest run --reporter=default --reporter=github-actions 2>&1 | tee vitest.log
+      - name: Show test failures
+        if: failure()
+        run: node .github/scripts/annotate-failure.mjs vitest.log
       - run: pnpm build
       - name: Check every package export resolves
         run: node packages/saydo/scripts/check-exports.mjs
