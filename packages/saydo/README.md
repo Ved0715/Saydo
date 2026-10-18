@@ -713,7 +713,10 @@ npx saydo actions                          # everything the assistant can do (fr
 npx saydo routes                           # pages found in app/
 npx saydo doctor                           # check the setup end to end, and lint overlapping action descriptions
 npx saydo eval                             # golden checks from saydo.evals.json: [{ "say": "…", "route": "/", "expect": "posts.create" }]
+npx saydo skill                            # add or update the agent skill for coding agents (see below)
 ```
+
+**Working with coding agents.** Saydo ships an [agent skill](packages/saydo/skill/SKILL.md): the rules, APIs, recipes and fixes an agent needs to build with it correctly. New apps from `create-saydo-app` include it in `.claude/skills/saydo` (Claude Code loads it automatically) with a short section in `AGENTS.md` (Cursor, Codex and others read it). `npx saydo-js init` adds both to existing apps, and `npx saydo skill` updates them after an upgrade.
 
 In development, the palette also has **"What the AI sees"**: the screen outline, the operable elements and every tool with its risk, live on the current page.
 

@@ -86,13 +86,31 @@ describe('saydo init', () => {
     expect(fs.readFileSync(path.join(dir, 'next.config.ts'), 'utf8')).toContain('withSaydo(nextConfig)');
     expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8')).toContain('<SaydoProvider>{children}</SaydoProvider>');
     expect(fs.readFileSync(path.join(dir, 'app', 'api', 'saydo', 'route.ts'), 'utf8')).toContain("export { POST } from 'saydo-js/next/route';");
-    expect(fs.readFileSync(path.join(dir, 'saydo.config.ts'), 'utf8')).toContain("appName: \"next-app\"");
+    expect(fs.readFileSync(path.join(dir, 'saydo.config.ts'), 'utf8')).toContain('name: "next-app"');
     expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toContain('.saydo');
+    // The agent skill and the AGENTS.md section for coding agents.
+    expect(fs.readFileSync(path.join(dir, '.claude', 'skills', 'saydo', 'SKILL.md'), 'utf8')).toMatch(/^---\nname: saydo\n/);
+    expect(fs.existsSync(path.join(dir, '.claude', 'skills', 'saydo', 'references', 'configuration.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')).toContain('<!-- BEGIN:saydo-agent-rules -->');
     // Idempotent.
     const again = quiet();
     expect(await main(['init', '--dir', dir])).toBe(0);
     again.mockRestore();
     expect(fs.readFileSync(path.join(dir, 'app', 'layout.tsx'), 'utf8').match(/SaydoProvider>/g)).toHaveLength(2);
+  });
+
+  it('installs and updates the agent skill without touching the rest of AGENTS.md', async () => {
+    const dir = path.join(tmp, 'skill-app');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# Team rules\n\nUse tabs.\n');
+    const spy = quiet();
+    expect(await main(['skill', '--dir', dir])).toBe(0);
+    expect(await main(['skill', '--dir', dir])).toBe(0);
+    spy.mockRestore();
+    const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+    expect(agents.startsWith('# Team rules\n\nUse tabs.\n')).toBe(true);
+    expect(agents.match(/BEGIN:saydo-agent-rules/g)).toHaveLength(1);
+    expect(fs.existsSync(path.join(dir, '.claude', 'skills', 'saydo', 'references', 'troubleshooting.md'))).toBe(true);
   });
 
   it('sets up a Vite + React app', async () => {
@@ -131,6 +149,8 @@ describe('create-saydo-app', () => {
       expect(fs.existsSync(path.join(target, '.gitignore'))).toBe(true);
       expect(fs.readFileSync(path.join(target, 'README.md'), 'utf8').startsWith(`# created-${template}`)).toBe(true);
       expect(fs.existsSync(path.join(target, 'saydo.config.ts'))).toBe(true);
+      expect(fs.existsSync(path.join(target, '.claude', 'skills', 'saydo', 'SKILL.md'))).toBe(true);
+      expect(fs.readFileSync(path.join(target, 'AGENTS.md'), 'utf8')).toContain('saydo-agent-rules');
     });
   }
 

@@ -75,19 +75,28 @@ export function configFile(appName: string): string {
 // import { anthropic } from '@ai-sdk/anthropic';
 
 export default defineConfig({
-  appName: ${JSON.stringify(appName)},
-  // Any AI SDK model. Without one, development uses a deterministic mock planner.
+  // The essentials. Without a model, development uses a deterministic mock planner.
   // model: anthropic('claude-sonnet-5-5'),
-
-  // Who is signed in (Auth.js, Clerk, Supabase, your session...).
+  // Who is signed in (Auth.js, Clerk, Supabase, your session…), or 'anonymous' for a public app.
   // getUser: async (request) => ({ id: 'user-id' }),
+  // Where approvals live in production: postgresGrantStore(pool), redisGrantStore(…), firestoreGrantStore(db).
+  // store: 'memory',
 
-  // Full freedom by default: the assistant sees the visible page and can operate
-  // every element; clicks you did not annotate ask the user first.
-  // see: { page: true },
+  // What the assistant knows about your app ("how do I…" answers come from here, and from your pages and actions).
+  knowledge: {
+    name: ${JSON.stringify(appName)},
+    // about: 'One paragraph about what this app is for.',
+    // docs: [{ title: 'Refunds', text: 'Refunds are possible for 30 days.' }],
+  },
+
+  // What it must never know about.
+  // hide: { routes: ['/admin/*'], fields: ['tax-id'], selectors: ['.internal'] },
+
+  // Full freedom by default: it sees the visible page and can operate every element;
+  // clicks you did not annotate ask the user first.
   // act: { elements: 'all', defaultRisk: 'write' },
 
-  // Plug in MCP servers, AI SDK tools, OpenAPI specs or tRPC routers:
+  // MCP servers, AI SDK tools, OpenAPI specs or tRPC routers:
   // tools: [mcp({ url: 'https://…/mcp', risk: { search: 'read' } })],
 });
 `;

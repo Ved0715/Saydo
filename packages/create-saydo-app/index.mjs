@@ -49,7 +49,7 @@ function copyTemplate(from, to, name) {
   fs.mkdirSync(to, { recursive: true });
   for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
     const src = path.join(from, entry.name);
-    const destName = entry.name === '_gitignore' ? '.gitignore' : entry.name === '_env.example' ? '.env.example' : entry.name;
+    const destName = entry.name === '_gitignore' ? '.gitignore' : entry.name === '_env.example' ? '.env.example' : entry.name === '_claude' ? '.claude' : entry.name;
     const dest = path.join(to, destName);
     if (entry.isDirectory()) copyTemplate(src, dest, name);
     else if (/\.(json|md)$/.test(entry.name)) fs.writeFileSync(dest, fs.readFileSync(src, 'utf8').replaceAll('{{name}}', name));

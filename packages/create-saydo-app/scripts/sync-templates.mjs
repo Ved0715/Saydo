@@ -37,6 +37,10 @@ for (const [template, example] of [['next', 'next-demo'], ['vite', 'vite-demo']]
   fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
   const readme = path.join(out, 'README.md');
   if (fs.existsSync(readme)) fs.writeFileSync(readme, fs.readFileSync(readme, 'utf8').replace(/^# .*/, '# {{name}}'));
+  // The agent skill and AGENTS.md section, so coding agents know Saydo from the first prompt.
+  // Stored as _claude (npm and some tools drop dot-folders); create-saydo-app renames it.
+  copy(path.join(repo, 'packages/saydo/skill'), path.join(out, '_claude', 'skills', 'saydo'));
+  fs.writeFileSync(path.join(out, 'AGENTS.md'), fs.readFileSync(path.join(repo, 'packages/saydo/AGENTS.section.md'), 'utf8'));
   if (!fs.existsSync(path.join(out, '_gitignore'))) {
     fs.writeFileSync(path.join(out, '_gitignore'), 'node_modules\n.next\ndist\ndist-server\n.saydo\n.env*.local\n.env\n');
   }

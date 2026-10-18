@@ -1,11 +1,24 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseLock, LOCKFILE_NAME } from '../core/lockfile';
 import { findAppDir, scanProject } from '../next/scan';
 import { addProviderToLayout, addVitePlugin, configFile, ROUTE_FILE, VITE_ROUTES_FILE, wrapNextConfig } from './codemods';
 
-const VERSION = '0.1.0';
+// The installed package's own version (dist/cli.js → ../package.json; src/cli/main.ts → ../../package.json).
+const VERSION = (() => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const file of [path.join(here, '..', 'package.json'), path.join(here, '..', '..', 'package.json')]) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(file, 'utf8')) as { name?: string; version?: string };
+      if (pkg.name === 'saydo-js' && pkg.version) return pkg.version;
+    } catch {
+      // try the next location
+    }
+  }
+  return '0.0.0';
+})();
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code: number) => (text: string) => (tty ? `\x1b[${code}m${text}\x1b[0m` : text);
 const bold = paint(1);
@@ -124,6 +137,7 @@ function init(dir: string, flags: Args['flags']): number {
   if (!firstExisting(dir, ['saydo.config.ts', 'saydo.config.mts', 'saydo.config.js', 'saydo.config.mjs'])) {
     write(path.join(dir, 'saydo.config.ts'), configFile(appName), changes, 'created');
   }
+  if (flags.skill !== 'false' && !flags['no-skill']) installSkill(dir, changes);
   const gitignore = path.join(dir, '.gitignore');
   const ignored = fs.existsSync(gitignore) ? fs.readFileSync(gitignore, 'utf8') : '';
   if (!ignored.split('\n').some((l) => l.trim() === '.saydo')) {
@@ -354,12 +368,74 @@ async function evaluate(file: string, flags: Args['flags']): Promise<number> {
   return failed ? 1 : 0;
 }
 
+/** The agent skill shipped in the package (dist/cli.js → ../skill; src/cli/main.ts → ../../skill). */
+function packagedSkill(): string | undefined {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return [path.join(here, '..', 'skill'), path.join(here, '..', '..', 'skill')].find((d) => fs.existsSync(path.join(d, 'SKILL.md')));
+}
+
+function copyDir(from: string, to: string) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const src = path.join(from, entry.name);
+    const dest = path.join(to, entry.name);
+    if (entry.isDirectory()) copyDir(src, dest);
+    else fs.copyFileSync(src, dest);
+  }
+}
+
+const AGENTS_BEGIN = '<!-- BEGIN:saydo-agent-rules -->';
+const AGENTS_END = '<!-- END:saydo-agent-rules -->';
+
+/** The AGENTS.md section other agents (Cursor, Codex, Copilot…) read; shipped as AGENTS.section.md. */
+function agentsSection(skillDir: string): string {
+  const file = path.join(skillDir, '..', 'AGENTS.section.md');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+}
+
+/** Install or update the agent skill (.claude/skills/saydo) and the AGENTS.md section. */
+function installSkill(dir: string, changes: string[]): boolean {
+  const source = packagedSkill();
+  if (!source) return false;
+  const target = path.join(dir, '.claude', 'skills', 'saydo');
+  const existed = fs.existsSync(path.join(target, 'SKILL.md'));
+  copyDir(source, target);
+  changes.push(`${green('✓')} ${existed ? 'updated' : 'added'} the agent skill ${dim('.claude/skills/saydo')}`);
+  const section = agentsSection(source);
+  if (!section) return true;
+  const agents = path.join(dir, 'AGENTS.md');
+  const current = fs.existsSync(agents) ? fs.readFileSync(agents, 'utf8') : '';
+  const start = current.indexOf(AGENTS_BEGIN);
+  const end = current.indexOf(AGENTS_END);
+  const next =
+    start >= 0 && end > start
+      ? `${current.slice(0, start)}${section.trimEnd()}${current.slice(end + AGENTS_END.length)}`
+      : `${current}${current && !current.endsWith('\n') ? '\n' : ''}${current ? '\n' : ''}${section}`;
+  if (next !== current) {
+    fs.writeFileSync(agents, next);
+    changes.push(`${green('✓')} ${current ? 'updated' : 'created'} ${dim('AGENTS.md')} (for Cursor, Codex and other agents)`);
+  }
+  return true;
+}
+
+function skill(dir: string): number {
+  const changes: string[] = [];
+  if (!installSkill(dir, changes)) {
+    console.error(red('The agent skill is missing from this saydo-js install.'), `Reinstall: ${cyan('npm install saydo-js@latest')}`);
+    return 1;
+  }
+  console.log(`\n${bold('Saydo agent skill')}\n`);
+  for (const line of changes) console.log(`  ${line}`);
+  console.log(`\n  Claude Code loads it automatically. Other agents read the Saydo section in AGENTS.md.\n`);
+  return 0;
+}
+
 function help() {
   console.log(`
 ${bold('saydo')} ${dim(`v${VERSION}`)}  Say it. It's done.
 
   ${cyan('saydo init')}                 Add Saydo to an existing Next.js or Vite + React app
-                             ${dim('--install  also install packages')}
+                             ${dim('--install  also install packages    --no-skill  skip the agent skill')}
   ${cyan('saydo ask "<request>"')}      Try a request against your dev server (never approves anything)
                              ${dim('--route /posts/1   --url http://localhost:3000')}
   ${cyan('saydo inspect [path]')}       What the model sees on a page: tools and risks
@@ -367,6 +443,7 @@ ${bold('saydo')} ${dim(`v${VERSION}`)}  Say it. It's done.
   ${cyan('saydo routes')}               Pages found in app/ (Next.js)
   ${cyan('saydo doctor')}               Check your setup (and lint overlapping action descriptions)
   ${cyan('saydo eval [file]')}          Golden "user says → expected action" checks (default saydo.evals.json)
+  ${cyan('saydo skill')}                Add or update the agent skill (.claude/skills/saydo + AGENTS.md) for coding agents
 
   New app: ${cyan('npx create-saydo-app my-app')}
 `);
@@ -394,6 +471,8 @@ export async function main(argv: string[]): Promise<number> {
         return routes(dir);
       case 'doctor':
         return await doctor(dir, args.flags);
+      case 'skill':
+        return skill(dir);
       case 'eval':
         return await evaluate(path.resolve(dir, args.positional[0] ?? 'saydo.evals.json'), args.flags);
       case 'help':
