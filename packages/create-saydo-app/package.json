@@ -1,6 +1,6 @@
 {
   "name": "create-saydo-app",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Create an AI-native React or Next.js app with Saydo: npx create-saydo-app",
   "license": "MIT",
   "type": "module",
