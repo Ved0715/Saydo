@@ -207,7 +207,9 @@ if (redisBinary) {
     redisUrl = `redis://127.0.0.1:${port}`;
     for (let i = 0; i < 50; i++) {
       try {
-        const probe = createClient({ url: redisUrl });
+        // No reconnect loop and an error listener: a failed probe must not leave a client retrying in the background.
+        const probe = createClient({ url: redisUrl, socket: { reconnectStrategy: false } });
+        probe.on('error', () => {});
         await probe.connect();
         await probe.quit();
         return;
@@ -216,11 +218,16 @@ if (redisBinary) {
       }
     }
   });
-  afterAll(() => {
+  const clients: { quit(): Promise<unknown> }[] = [];
+  afterAll(async () => {
+    // Close every client before the server goes away, or its socket error is uncaught.
+    await Promise.all(clients.map((c) => c.quit().catch(() => {})));
     redisProcess?.kill();
   });
   contractTests('redis (real redis-server)', async () => {
     const redis = createClient({ url: redisUrl });
+    redis.on('error', () => {});
+    clients.push(redis);
     await redis.connect();
     await redis.flushAll();
     return redisGrantStore({ eval: (script, keys, args) => redis.eval(script, { keys, arguments: args }) });
