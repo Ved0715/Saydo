@@ -1,0 +1,12 @@
+{
+  "lockfileVersion": 1,
+  "capabilities": {
+    "feedback": {"risk":"write","kind":"server","version":1,"expose":["assistant"]}
+  },
+  "routes": [
+    "/",
+    "/feedback",
+    "/profile",
+    "/settings"
+  ]
+}

@@ -1,0 +1,11 @@
+node_modules
+.next
+.saydo
+dist
+dist-server
+*.tsbuildinfo
+.env*.local
+*.tgz
+.env
+.DS_Store
+coverage

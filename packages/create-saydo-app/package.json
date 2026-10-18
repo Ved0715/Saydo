@@ -1,0 +1,22 @@
+{
+  "name": "create-saydo-app",
+  "version": "0.1.0",
+  "description": "Create an AI-native React or Next.js app with Saydo: npx create-saydo-app",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-saydo-app": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "sync": "node scripts/sync-templates.mjs"
+  },
+  "engines": {
+    "node": ">=20.9"
+  }
+}
