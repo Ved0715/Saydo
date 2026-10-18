@@ -75,6 +75,8 @@ export interface TranscriptEntry {
   text: string;
   status?: ReceiptStatus;
   capability?: string;
+  /** Clarifying questions: the options that were offered. */
+  options?: string[];
 }
 
 /** Every request may carry a requestId; a retry with the same id returns the stored response instead of re-running. */
@@ -100,6 +102,8 @@ export type TurnRequest = (
 /** Things the assistant UI shows for this request. */
 export type DisplayEvent =
   | { type: 'assistant'; text: string }
+  /** A clarifying question with options the user can click (their answer is the next message). */
+  | { type: 'question'; question: string; options: string[] }
   | { type: 'action'; capability: string; title: string; status: ReceiptStatus; message?: string };
 
 export type PendingAction =
@@ -167,6 +171,10 @@ export interface ClientSettings {
   elements: 'all' | 'annotated' | 'none';
   /** Conversations are stored on the server (history and resume are available). */
   history?: boolean;
+  /** Form fields (name, id or label) whose values never leave the browser. */
+  privateFields?: string[];
+  /** Page regions (CSS selectors) the assistant never reads. */
+  privateSelectors?: string[];
 }
 
 /** An action exposed to agents (MCP clients, WebMCP browser agents). */

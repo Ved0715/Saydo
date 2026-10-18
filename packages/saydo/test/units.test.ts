@@ -23,7 +23,11 @@ describe('seal', () => {
   it('round-trips and rejects tampering or the wrong key', async () => {
     const token = await seal({ a: 1, text: 'héllo ✓' }, SECRET);
     expect(await unseal(token, SECRET)).toEqual({ a: 1, text: 'héllo ✓' });
-    expect(await unseal(token.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')), SECRET)).toBeNull();
+    // Flip a real byte (the last base64 character can carry only padding bits).
+    const bytes = Buffer.from(token.slice(3), 'base64url');
+    bytes[Math.floor(bytes.length / 2)]! ^= 0x01;
+    expect(await unseal(`v2.${bytes.toString('base64url')}`, SECRET)).toBeNull();
+    expect(token.startsWith('v2.')).toBe(true);
     expect(await unseal(token, `${SECRET}-other`)).toBeNull();
     expect(await unseal('garbage', SECRET)).toBeNull();
     await expect(seal({}, 'short')).rejects.toThrow(/SAYDO_SECRET/);

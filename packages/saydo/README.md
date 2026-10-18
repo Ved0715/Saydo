@@ -145,59 +145,90 @@ For production, serve the endpoint from your server. See [Production](#16-produc
 
 ## 2. Configure (`saydo.config.ts`)
 
+One file, grouped by the question each part answers. Only the first four options are common; every group is optional, with a safe default.
+
 ```ts
 import { anthropic } from '@ai-sdk/anthropic';
 import { defineConfig } from 'saydo/config';
-import { mcp } from 'saydo/server';
 import { auth } from './lib/auth';
 
 export default defineConfig({
-  appName: 'Acme',
-  model: anthropic('claude-sonnet-5-5'),        // any AI SDK model
+  // The essentials
+  model: anthropic('claude-sonnet-5-5'),          // any AI SDK model
   getUser: async () => {
     const session = await auth();
     return session ? { id: session.user.id, role: session.user.role } : null;
   },
-  see: { page: true },                           // read the visible page (default)
-  act: { elements: 'all', defaultRisk: 'write' },// operate any element; unannotated clicks ask first (default)
-  tools: [mcp({ url: 'https://mcp.example.com/mcp', prefix: 'crm', risk: { search: 'read' } })],
+  store: postgresGrantStore(pool),                 // where approvals live ('memory' for one process)
+  instructions: 'Be brief. Amounts are in EUR.',  // appended to the safety rules, never replacing them
+
+  // What the assistant knows about your app
+  knowledge: {
+    about: 'Invoicing for small agencies: clients, invoices, payments.',
+    docs: [{ title: 'Refunds', text: 'Refunds are possible for 30 days, from the invoice page.', keywords: ['money back'] }],
+  },
+  // What it must never know about
+  hide: { routes: ['/admin/*'], actions: ['billing.export'], fields: ['tax-id'], selectors: ['.internal-notes'] },
+  // What it may do, and how it asks
+  act: { defaultRisk: 'write', authorize: myPolicy },
 });
 ```
 
+**The essentials**
+
 | Option | Default | What it does |
 |---|---|---|
-| `model` | mock planner in dev | Any AI SDK `LanguageModel`, several (`[primary, backup]`) to fail over when a provider errors, or a function that picks per request: `({ user, route }) => user.plan === 'pro' ? strong : fast`. Return a provider created with a tenant's own key to let tenants bring their key. Required in production unless you pass `planner`. |
-| `planner` | from `model` | Bring your own planner (custom agent loop). The consent gate still applies. |
-| `getUser(request)` | per-browser visitor | Your signed-in user `{ id, ...anything }`. Return `null` to refuse. Without it, each browser gets its own signed anonymous identity, and production refuses actions that change data (or stored conversations) unless `anonymous: true`. |
-| `anonymous` | `false` | Allow signed-out visitors to use actions that change data (a public feedback form, a demo). Visitors never share approvals, conversations or limits, and cookie-less clients are also limited per IP. |
-| `see.page` | `true` | Send the visible page to the model as untrusted context. |
-| `act.elements` | `'all'` | `'all'` lets the assistant operate any visible element, `'annotated'` only `data-saydo` ones, `false` none. |
-| `act.defaultRisk` | `'write'` | Risk for page clicks you did not annotate. `'read'` removes those confirmations (your call); declared actions keep their own risk. `'destructive'` is stricter. |
-| `act.annotationsCanLowerRisk` | `true` | Set `false` if you render rich user HTML that could carry `data-saydo-risk`. |
-| `redact` | `'basic'` | Masks card numbers (Luhn-checked), SSNs and IBANs in screen text, element names, form values and context before anything reaches the model. `'strict'` also masks emails and phone numbers. Pass a function for your own rules, or `'none'`. |
-| `budget` | none | Per-user daily limits, `{ requestsPerDay, tokensPerDay }`. |
-| `limits` | in-process | Where rate-limit and budget counters live. With more than one instance use `redisLimitStore(...)`, so limits hold across all of them. |
-| `taint` | `'confirm'` | After the assistant reads content written by others (marked page regions, results of imported tools or `untrustedResults` actions), reversible steps in that request ask first instead of running with Undo. `'off'` relies on Undo alone. |
-| `onUsage` | none | `({ userId, inputTokens, outputTokens, cachedInputTokens, steps, costUsd })` after each request, for metrics and spend alerts. |
-| `pricing` | none | `{ input, output, cachedInput }` in USD per million tokens. Fills `costUsd` in `onUsage` and the inspector's per-page estimate. |
-| `tracer` | none | An OpenTelemetry tracer (`trace.getTracer('saydo')`). Emits a `saydo.plan` span per model step and a `saydo.execute` span per action. |
-| `stepUp` | none | `webauthn({ … })`: a passkey for the riskiest approvals (see §12). |
-| `confirmBudget` | `5` | Confirmations per request before further ones need step-up, so a hijacked turn cannot wear the user down with cards. |
-| `external` | off | Agents outside the in-app assistant: `{ authenticate, approvals: 'delegated', appOrigin }` (see §13). |
-| `deploymentId` | `VERCEL_DEPLOYMENT_ID` | Recorded on audit entries and in the manifest, so incidents map to a deploy. |
-| `audit` | none | Receives every decision. Wrap your sink with `createAuditLog()` for a tamper-evident chain. |
-| `tools` | `[]` | `mcp()`, `aiTools()`, `fromOpenAPI()`, `fromTRPC()`, or plain actions. |
-| `threads` | none | Store conversations on the server (history, resume, erasure). See §15. |
-| `authorize` | none | Central policy for every action call, on the server: return `true`, `false`, `{ deny: 'reason' }`, `'confirm'` or `'step-up'`. Plug in OPA, Cedar or your RBAC. It can add friction, never remove it. |
-| `search` | keyword | `{ embed }`: find actions by meaning in large apps (more than `maxTools`). Falls back to keywords on errors. |
-| `record` | none | Receives every request (what the model saw and answered, and what happened). Replay it with `replayPlanner(records)` to turn an incident into a test. |
-| `store` | memory in dev | Where approvals live. `'memory'` is for single-instance servers. Production with gated actions needs a store, or an explicit `'memory'`. |
-| `instructions` | none | Brand voice or domain hints, appended and never replacing the safety rules. A function picks them per request: `({ user, route }) => …`. |
-| `maxTools` | `40` | Above this, only page-relevant actions are sent in full; the model finds the rest with `find_capability`. |
-| `rateLimit` | `30`/min/user | Requests per user per minute, or `false`. |
-| `maxSteps` | `6` | Model steps per request. |
-| `lockfile` | `saydo.capabilities.json` | Path, or `false`. |
-| `secret` | `SAYDO_SECRET` | Signs conversation state. Generated automatically in dev. |
+| `model` | mock planner in dev | Any AI SDK model; several (`[primary, backup]`) to fail over; or a function `({ user, route, request }) => model` that picks per request (by plan, tenant or page; return a provider created with a tenant's own key to let tenants bring theirs). |
+| `getUser` | per-browser visitor | Your signed-in user `{ id, …anything }`, or `null` to refuse. `'anonymous'` is for public apps without sign-in: each browser gets its own isolated identity. With neither, production refuses actions that change data. |
+| `store` | memory in dev | Where approvals live: `postgresGrantStore`, `redisGrantStore`, `firestoreGrantStore`, or `'memory'` for one process. |
+| `instructions` | none | Brand voice and domain hints. A function picks them per request: `({ user, route }) => …`. |
+
+**`knowledge`: what it knows about your app**
+
+| Option | Default | What it does |
+|---|---|---|
+| `name` | none | Your app's name, as the assistant says it. |
+| `about` | none | A paragraph about what the app is for. |
+| `docs` | none | How-tos, policies and FAQs (`{ title, text, routes?, keywords? }`), or a function of `{ user, route }` that returns them. "How do I…" questions are answered from these. |
+| `guide` | `true` | Also answer from a guide Saydo builds from your pages and actions: where each action lives and what needs confirmation. The assistant explains the steps, then offers to do them. |
+
+**`see`: what it may look at** · `page` (default `true`): the visible page as untrusted context. `redact` (default `'basic'`): masks card numbers (Luhn-checked), SSNs and IBANs in everything before egress; `'strict'` adds emails and phones; or your own function.
+
+**`hide`: what it must never know about**
+
+| Option | What it hides |
+|---|---|
+| `routes` | Pages it never sees, lists or opens (`'/admin/*'` hides a subtree). |
+| `actions` | Actions it never sees or calls, by id or prefix (`'admin.*'`); outside agents can't see them either. |
+| `fields` | Form fields whose values never leave the browser, by name, id or label. |
+| `selectors` | Parts of the page it never reads (CSS selectors, like `data-saydo-private`). |
+| `context` | Keys of `useSaydoContext` data dropped on the server. |
+
+**`act`: what it may do, and how it asks**
+
+| Option | Default | What it does |
+|---|---|---|
+| `elements` | `'all'` | Page elements it may operate: `'all'`, `'annotated'` (only `data-saydo` ones) or `false`. |
+| `defaultRisk` | `'write'` | Risk of clicks you did not annotate (`'read'` removes those confirmations, `'destructive'` is stricter). |
+| `annotationsCanLowerRisk` | `true` | Set `false` if you render rich user HTML that could carry `data-saydo-risk`. |
+| `authorize` | none | Central policy for every call (assistant, MCP, browser agents): return `true`, `false`, `{ deny }`, `'confirm'` or `'step-up'`. Plug in OPA, Cedar or your RBAC. It can add friction, never remove it. |
+| `stepUp` | none | `webauthn({ … })`: a passkey for the riskiest approvals (§12). |
+| `confirmBudget` | `5` | Confirmations per request before more need step-up. |
+| `taint` | `'confirm'` | After it reads content written by others, reversible steps in that request ask first. `'off'` relies on Undo. |
+| `clarify` | `true` | It may ask one short question with clickable options ("Which post: Launch notes or Roadmap?") instead of guessing. |
+
+**The other groups**
+
+| Group | Options |
+|---|---|
+| `tools` | `mcp()`, `aiTools()`, `fromOpenAPI()`, `fromTRPC()`, or plain actions (§10). `capabilities` adds extra actions. |
+| `limits` | `perMinute` (default 30 per user, or `false`), `perDay: { requests, tokens }`, `steps` (default 6), `tools` (default 40, the rest are found by search), `store` (`redisLimitStore(…)` with several instances). |
+| `conversations` | `store` (keep conversations on the server: history, resume, erasure; §15), `retentionDays` (default 30). |
+| `agents` | Agents outside your app over MCP: `authenticate`, `approvals: 'delegated'`, `appOrigin`, `approvalUrl` (§13). |
+| `observe` | `audit` (wrap with `createAuditLog()`), `onUsage`, `pricing` (USD per million tokens, gives `costUsd`), `tracer` (OpenTelemetry), `record` (replay with `replayPlanner`), `deploymentId`. |
+| `advanced` | `planner` (your own agent loop; the gate still applies), `secret` (default `SAYDO_SECRET`), `search` (`{ embed }` for meaning-based action search), `lockfile`. |
+
+A misplaced or old option name prints a warning that says where it belongs.
 
 ## 3. Seeing and using the page (no code)
 
@@ -396,6 +427,10 @@ useSaydoContext('cart', { items: cart.length, total });   // small, opt-in state
 
 UI actions run in the browser with no confirmation, so keep them to UI changes. Use `action()` or `serverAction()` for anything that changes data.
 
+**Instant answers, no model call:** give a UI action `phrases` and those exact words run it in the browser in milliseconds: `useAction('theme.dark', 'Switch to dark mode', toDark, { phrases: ['dark mode', 'lights off'] })`. Navigation by page name, "undo that", "go back" and "new chat" are instant too.
+
+**Ask instead of guess:** when a request is ambiguous ("archive the post" with two posts on screen), the assistant asks one short question with clickable options. Turn it off with `act: { clarify: false }`.
+
 **Unsaved changes:** `useSaydoGuard(form.isDirty)` tells the assistant the page has unsaved work. While it is active, AI navigation is refused with `blocked: unsaved_changes`, so the model asks the user to save first.
 
 ## 9. Existing client calls (React Query, fetch)
@@ -475,7 +510,7 @@ const ai = useSaydo();   // { open, items, busy, confirm, toasts, send, approve,
 
 Always pass the click event's `isTrusted` to `approve`. The server refuses approvals from synthetic events.
 
-**Streaming:** replies appear as the model writes them (newline-delimited JSON over the same endpoint; the final result is authoritative and a dropped stream is retried safely by `requestId`). Turn it off with `<SaydoProvider stream={false}>`.
+**Streaming:** each step shows as it starts ("Opening Billing…", "Creating a draft…") and replies appear as the model writes them (newline-delimited JSON over the same endpoint; the final result is authoritative and a dropped stream is retried safely by `requestId`). Turn it off with `<SaydoProvider stream={false}>`.
 
 **Translate or rephrase any text:** `<SaydoProvider messages={{ launcher: 'Preguntar a la IA', confirm: 'Confirmar', … }}>`. The palette always shows an AI disclosure line (`messages.disclosure`).
 
@@ -488,14 +523,16 @@ A click proves that an input event happened, not that a human made it, because b
 import { webauthn, postgresPasskeyStore } from 'saydo/server';
 
 export default defineConfig({
-  stepUp: webauthn({
-    rpId: 'example.com',                      // 'localhost' in dev
-    origins: 'https://app.example.com',
-    passkeys: postgresPasskeyStore(pool),     // or memoryPasskeyStore() in dev
-    allowRegistration: (user) => user.recentlySignedIn === true, // adding a passkey must itself be protected
-    // when: 'step-up' (default: bulk destructive, stepUp actions, over budget) | 'destructive' | 'gated'
-    // fallback: 'typed' (default: typed confirmation without a passkey) | 'deny'
-  }),
+  act: {
+    stepUp: webauthn({
+      rpId: 'example.com',                      // 'localhost' in dev
+      origins: 'https://app.example.com',
+      passkeys: postgresPasskeyStore(pool),     // or memoryPasskeyStore() in dev
+      allowRegistration: (user) => user.recentlySignedIn === true, // adding a passkey must itself be protected
+      // when: 'step-up' (default: bulk destructive, stepUp actions, over budget) | 'destructive' | 'gated'
+      // fallback: 'typed' (default: typed confirmation without a passkey) | 'deny'
+    }),
+  },
 });
 ```
 
@@ -523,7 +560,7 @@ export { POST, GET, DELETE } from 'saydo/next/mcp';
 
 ```ts
 // saydo.config.ts
-external: {
+agents: {
   authenticate: (request) => userFromAccessToken(request.headers.get('authorization')), // your tokens or OAuth
   approvals: 'delegated',            // default 'deny': gated actions are refused for agents
   appOrigin: 'https://app.example.com',
@@ -571,7 +608,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { firestoreThreadStore, firestoreGrantStore } from 'saydo/server';
 
 export default defineConfig({
-  threads: firestoreThreadStore(getFirestore()),   // or postgresThreadStore(pool), memoryThreadStore()
+  conversations: { store: firestoreThreadStore(getFirestore()) },   // or postgresThreadStore(pool), memoryThreadStore()
   store: firestoreGrantStore(getFirestore()),      // approvals too, so Firestore is the only database you need
 });
 ```
@@ -586,7 +623,7 @@ export default defineConfig({
 Your own store implements `ThreadStore` (`get`, `save`, `append`, `transcript`, `list`, `delete`, `deleteUser`). Two rules: `save` is an atomic compare-and-set on `version`, and the transcript is append-only. The contract test suite in the repo checks both against every store.
 
 - **Hooks:** `const { enabled, list, open, remove, startNew } = useConversations()` to build your own history UI.
-- **Retention:** conversations expire 30 days after the last message (`threadTtlMs`).
+- **Retention:** conversations expire 30 days after the last message (`conversations.retentionDays`).
 - **Erasure:** `await threads.deleteUser(userId)` and `await store.deleteUser(userId)` remove everything Saydo stored for a user.
 - **Outages:** if the store is down during a turn, the response is never lost; that turn falls back to signed browser state and the conversation is saved again on the next turn.
 - **What is stored:** the working state (messages, action results, record handles) and a transcript of what the user saw. Page snapshots are not stored.
@@ -613,16 +650,16 @@ const store = redisGrantStore({ eval: (script, keys, args) => redis.eval(script,
 
   Any store implementing `create`, `claim`, `get`, `transition`, `update` and `deleteUser` works. `claim` and `transition` must be atomic. Use `store: 'memory'` only for a single process.
 - **Exactly once:** every request carries a `requestId`, and the browser retries once on network errors. The server stores each response, so a retry never runs an action twice. Each tool call is also claimed once, and `ctx.invocationId` is your idempotency key for your own database writes.
-- **Audit trail:** `audit: createAuditLog((record) => db.insert('saydo_audit', record))` gives you a hash-chained, append-only log (check it with `verifyAuditChain`). It records who did what, at which tier, how the user consented, a digest of the exact card they saw, the model and the deployed manifest, but never the arguments, so it holds no PII.
+- **Audit trail:** `observe: { audit: createAuditLog((record) => db.insert('saydo_audit', record)) }` gives you a hash-chained, append-only log (check it with `verifyAuditChain`). It records who did what, at which tier, how the user consented, a digest of the exact card they saw, the model and the deployed manifest, but never the arguments, so it holds no PII.
 - **Right to erasure:** `store.deleteUser(userId)`. Conversation state is never stored on the server.
-- **Central policy:** `authorize: ({ user, capability, input, origin }) => …` runs for every action call (assistant, MCP and browser agents) after records are resolved, so it sees real objects. Errors deny. It does not cover clicks on page elements; those follow `act`.
-- **Reproducing incidents:** `record: (turn) => log.write(turn)`, then in a test: `createEngine({ …, planner: replayPlanner(turns, { strict: true }) })`. `strict` fails when the app now offers the model different tools than when the turn happened.
+- **Central policy:** `act: { authorize: ({ user, capability, input, origin }) => … }` runs for every action call (assistant, MCP and browser agents) after records are resolved, so it sees real objects. Errors deny. It does not cover clicks on page elements; those follow `act`.
+- **Reproducing incidents:** `observe: { record: (turn) => log.write(turn) }`, then in a test: `createEngine({ …, planner: replayPlanner(turns, { strict: true }) })`. `strict` fails when the app now offers the model different tools than when the turn happened.
 - **Model outages:** `model: [anthropic('claude-sonnet-5-5'), openai('gpt-5')]` fails over per step; after repeated failures the circuit breaker answers fast and the palette keeps working.
-- **Several instances:** use `limits: redisLimitStore({ eval })` so rate limits and budgets are shared. The circuit breaker stays per instance on purpose: each instance stops calling a failing provider on its own evidence.
+- **Several instances:** use `limits: { store: redisLimitStore({ eval }) }` so rate limits and budgets are shared. The circuit breaker stays per instance on purpose: each instance stops calling a failing provider on its own evidence.
 - **Signed-out apps:** without `getUser`, visitors get an isolated identity from a signed, HttpOnly cookie. Cookie-less clients are also limited per IP, taken from your platform's proxy header (Vercel, Cloudflare, Netlify) or, with `saydo/node`, the socket address. On a bare server with no proxy, put a gateway in front for IP limits.
 - **Sealed state is encrypted** (AES-256-GCM, key derived from `SAYDO_SECRET`), so the browser can neither read nor alter the conversation state it carries.
-- **Tracing and cost:** pass `tracer: trace.getTracer('saydo')` for OpenTelemetry spans, and `pricing` to get `costUsd` per request in `onUsage`. `npx saydo inspect /page` and the dev inspector show the estimated input tokens per model step on each page.
-- **Limits and outages:** per-user `rateLimit` and `budget`. After repeated model failures a circuit breaker returns a fast `planner_unavailable` for 30 seconds, and the palette keeps working.
+- **Tracing and cost:** pass `observe: { tracer: trace.getTracer('saydo') }` for OpenTelemetry spans, and `observe.pricing` to get `costUsd` per request in `onUsage`. `npx saydo inspect /page` and the dev inspector show the estimated input tokens per model step on each page.
+- **Limits and outages:** per-user `limits.perMinute` and `limits.perDay`. After repeated model failures a circuit breaker returns a fast `planner_unavailable` for 30 seconds, and the palette keeps working.
 - **Lockfile:** `saydo.capabilities.json` is written in dev and checked during `next build`. In CI (`CI=true`) a stale lockfile fails the build, so lowered risk and newly exposed actions always show up in review.
 - **Vite apps:** build a server entry with `vite build --ssr server.ts`:
 
@@ -650,7 +687,7 @@ Any fetch-style server (Hono, Bun, Deno, Workers) can use `createHandler(registr
 | Forged conversation history | Thread state is HMAC-signed and bound to the user and the browser tab. Tampered state is rejected. |
 | Guessed or foreign ids | The model only sees server-minted handles, and each one is re-checked through your entity's `get` on every use. |
 | Data leaking out | `data-saydo-private` content never leaves the browser. Passwords and payment fields are masked. URL parameters must be declared. Navigation effects must be internal paths. API error bodies are dropped. |
-| Visitors of an app without sign-in sharing state | Each browser gets its own signed identity; production refuses data-changing actions without `getUser` unless you opt into `anonymous`. |
+| Visitors of an app without sign-in sharing state | Each browser gets its own signed identity; production refuses data-changing actions without `getUser` unless you set `getUser: 'anonymous'`. |
 | "Delete all drafts" looking like one record | `blastRadius` counts filter-selected records; bulk destructive calls need step-up. |
 | A comment, email or API response steering the model | Untrusted text is marked for the model, third-party results are spotlighted, and a request that read it cannot auto-run even reversible steps (`taint`). |
 | Scripts in the page registering browser-agent tools | `Permissions-Policy: tools=()` unless you turn agents on (then `tools=(self)`). |

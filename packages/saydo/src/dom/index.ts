@@ -30,6 +30,8 @@ export interface CreateSaydoOptions {
   onInvalidate?: (keys?: string[]) => void;
   /** Show replies as the model writes them. Default true. */
   stream?: boolean;
+  /** Extra headers on every request to the endpoint (a function is read at send time). */
+  headers?: Record<string, string> | (() => Record<string, string>);
 }
 
 export interface SaydoClient {
@@ -39,7 +41,7 @@ export interface SaydoClient {
   open(): void;
   close(): void;
   /** A UI action the assistant can run while it is registered (like `useAction`). Returns the unregister function. */
-  action(id: string, describe: string, run: (args: unknown, ctx: ActionContext) => unknown, options?: { input?: Record<string, unknown> }): () => void;
+  action(id: string, describe: string, run: (args: unknown, ctx: ActionContext) => unknown, options?: { input?: Record<string, unknown>; phrases?: string[] }): () => void;
   /** Implement a client capability declared with `defineCapability` (like `useCapability`). */
   capability(id: string, run: (args: unknown, ctx: ActionContext) => unknown): () => void;
   /** Share a value with the assistant while it is registered (like `useSaydoContext`). */
@@ -77,6 +79,7 @@ export function createSaydo(options: CreateSaydoOptions = {}): SaydoClient {
     messages: options.messages,
     onInvalidate: options.onInvalidate,
     stream: options.stream,
+    headers: options.headers,
   });
   const cleanups: (() => void)[] = [];
   const owner = Symbol('saydo-dom');
@@ -121,7 +124,7 @@ export function createSaydo(options: CreateSaydoOptions = {}): SaydoClient {
     ask: (text) => runtime.send(text),
     open: () => runtime.setOpen(true),
     close: () => runtime.setOpen(false),
-    action: (id, describe, run, extra) => registry.register(Symbol(id), { id, kind: 'ui', describe, inputSchema: extra?.input, run }),
+    action: (id, describe, run, extra) => registry.register(Symbol(id), { id, kind: 'ui', describe, inputSchema: extra?.input, phrases: extra?.phrases, run }),
     capability: (id, run) => registry.register(Symbol(id), { id, kind: 'capability', run }),
     context: (key, value) => {
       registry.setContext(key, value);
@@ -308,7 +311,18 @@ function mountUI(runtime: SaydoRuntime, m: SaydoMessages, placeholder: string | 
       ...[
         snap.reloadRequired &&
           h('div', { className: 'saydo-notice' }, `${m.reloadNotice} `, h('button', { type: 'button', onClick: () => location.reload() }, m.reloadButton)),
-        ...snap.items.map((item) => h('div', { className: `saydo-item saydo-${item.role}`, 'data-status': item.status }, item.text)),
+        ...snap.items.map((item, index) =>
+          h(
+            'div',
+            { className: `saydo-item saydo-${item.role}`, 'data-status': item.status },
+            item.text,
+            item.options &&
+              index === snap.items.length - 1 &&
+              !snap.busy &&
+              h('div', { className: 'saydo-choices', role: 'group' }, ...item.options.map((option) => h('button', { type: 'button', onClick: () => void runtime.send(option) }, option))),
+          ),
+        ),
+        snap.progress && h('p', { className: 'saydo-progress', role: 'status' }, snap.progress),
         snap.streaming && h('div', { className: 'saydo-item saydo-assistant saydo-streaming', 'aria-hidden': 'true' }, snap.streaming),
         card?.el,
         pages.length > 0 &&

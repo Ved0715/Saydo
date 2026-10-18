@@ -65,4 +65,8 @@ export const STYLES = `
 .saydo-streaming::after{content:"";display:inline-block;width:.5em;height:1em;margin-left:2px;vertical-align:-2px;background:var(--saydo-accent);opacity:.6;animation:saydo-blink 1s steps(2) infinite}
 @keyframes saydo-blink{to{opacity:0}}
 @media (prefers-reduced-motion:reduce){.saydo-streaming::after{animation:none}}
+.saydo-choices{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.saydo-choices button{font:500 13px var(--saydo-font);padding:6px 10px;border-radius:999px;border:1px solid var(--saydo-border);background:var(--saydo-bg);color:var(--saydo-fg);cursor:pointer}
+.saydo-choices button:hover{border-color:var(--saydo-accent)}
+.saydo-progress{margin:0;font-size:12.5px;color:var(--saydo-muted);padding:0 4px}
 `;

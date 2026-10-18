@@ -38,6 +38,8 @@ export interface SaydoProviderProps {
   onInvalidate?: (keys?: string[]) => void;
   /** Show replies as the model writes them. Default true. */
   stream?: boolean;
+  /** Extra headers on every request to the endpoint. A function is read each time a request is sent. */
+  headers?: Record<string, string> | (() => Record<string, string>);
 }
 
 export function SaydoProvider({
@@ -53,7 +55,12 @@ export function SaydoProvider({
   agents = false,
   onInvalidate,
   stream = true,
+  headers,
 }: SaydoProviderProps) {
+  const headersRef = useRef(headers);
+  useEffect(() => {
+    headersRef.current = headers;
+  });
   const invalidateRef = useRef(onInvalidate);
   useEffect(() => {
     invalidateRef.current = onInvalidate;
@@ -78,6 +85,10 @@ export function SaydoProvider({
         stepUp,
         onInvalidate: (keys) => invalidateRef.current?.(keys),
         stream,
+        headers: () => {
+          const current = headersRef.current;
+          return (typeof current === 'function' ? current() : current) ?? {};
+        },
       }),
   );
 

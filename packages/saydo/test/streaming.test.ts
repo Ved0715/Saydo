@@ -88,7 +88,7 @@ describe('streaming over HTTP', () => {
     const { routes, capabilities } = makeApp(db);
     return createHandler(
       { routes, capabilities },
-      { secret: SECRET, getUser: () => alice, rateLimit: false, lockfile: false, store: 'memory', planner: mockPlanner({ script: [call('posts_count'), say('You have 2 posts.')] }) },
+      { getUser: () => alice, store: 'memory', advanced: { secret: SECRET, lockfile: false, planner: mockPlanner({ script: [call('posts_count'), say('You have 2 posts.')] }) }, limits: { perMinute: false } },
     );
   }
   const post = (handler: (r: Request) => Promise<Response>, body: unknown) =>

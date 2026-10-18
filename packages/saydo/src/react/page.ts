@@ -19,6 +19,14 @@ export interface SnapshotOptions {
   root?: Element;
   /** Extra selectors to treat like data-saydo-private. */
   privateSelectors?: string[];
+  /** Form fields (name, id or label, case-insensitive) whose values are never read. */
+  privateFields?: string[];
+}
+
+function isHiddenField(field: Element, hidden: Set<string>): boolean {
+  if (!hidden.size) return false;
+  const keys = [field.getAttribute('name'), field.id, nameOf(field)].filter(Boolean).map((k) => k!.toLowerCase());
+  return keys.some((k) => hidden.has(k));
 }
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'IFRAME', 'OBJECT', 'CANVAS', 'VIDEO', 'AUDIO', 'HEAD']);
@@ -117,11 +125,11 @@ function riskAttr(el: Element): Risk | undefined {
 }
 
 /** Non-sensitive field values a form would submit, for the confirm card. */
-function formValuesOf(form: HTMLFormElement): Record<string, string> {
+function formValuesOf(form: HTMLFormElement, hidden: Set<string> = new Set()): Record<string, string> {
   const values: Record<string, string> = {};
   for (const field of [...form.elements].slice(0, 40)) {
     if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) continue;
-    if (field.closest('[data-saydo-private]') || field.disabled) continue;
+    if (field.closest('[data-saydo-private]') || field.disabled || isHiddenField(field, hidden)) continue;
     if (field instanceof HTMLInputElement) {
       if (['password', 'hidden', 'submit', 'button', 'file'].includes(field.type) || SENSITIVE_AUTOCOMPLETE.test(field.autocomplete)) continue;
       if ((field.type === 'checkbox' || field.type === 'radio') && !field.checked) continue;
@@ -150,6 +158,7 @@ export function snapshotPage(options: SnapshotOptions): SnapshotResult {
   if (!root) return { snapshot: { text: '', elements: [], truncated: false }, refs };
   const maxChars = options.maxChars ?? 12_000;
   const privateSelector = ['[data-saydo-private]', '.saydo-root', ...(options.privateSelectors ?? [])].join(',');
+  const hiddenFields = new Set((options.privateFields ?? []).map((f) => f.toLowerCase()));
   const lines: string[] = [];
   const elements: PageElement[] = [];
   let size = 0;
@@ -207,7 +216,7 @@ export function snapshotPage(options: SnapshotOptions): SnapshotResult {
       if (contextText && contextText !== name) entry.context = contextText;
     }
     if (form) {
-      if (entry.submits) entry.formValues = formValuesOf(form);
+      if (entry.submits) entry.formValues = formValuesOf(form, hiddenFields);
       const formName = form.getAttribute('data-saydo') ?? form.getAttribute('toolname') ?? form.getAttribute('aria-label') ?? '';
       if (formName && formName !== 'off') entry.form = formName.slice(0, 120);
       const formRisk = form.getAttribute('data-saydo-risk') as Risk | null;
@@ -221,7 +230,10 @@ export function snapshotPage(options: SnapshotOptions): SnapshotResult {
   const describeField = (el: Element, role: string, ref: string | null, untrusted: boolean): string => {
     const name = nameOf(el);
     const tag = ref ? `[${role} ${ref}]` : `[${role}]`;
-    if (el instanceof HTMLInputElement && (el.type === 'password' || SENSITIVE_AUTOCOMPLETE.test(el.autocomplete))) {
+    if (
+      (el instanceof HTMLInputElement && (el.type === 'password' || SENSITIVE_AUTOCOMPLETE.test(el.autocomplete))) ||
+      isHiddenField(el, hiddenFields)
+    ) {
       return `${tag} ${name}: (hidden)`;
     }
     if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {

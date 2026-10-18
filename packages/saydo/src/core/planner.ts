@@ -46,6 +46,8 @@ export interface PlanOptions {
   signal?: AbortSignal;
   /** Streaming: called with each piece of the reply text as the model writes it. */
   onText?: (delta: string) => void;
+  /** The incoming HTTP request (headers, cookies), for planners that pick a model or key per request. */
+  request?: Request;
 }
 
 export interface Planner {
@@ -84,12 +86,20 @@ const NAV_RE = /\b(go to|goto|open|take me to|navigate to|show me|show|visit|bri
 function heuristic(input: PlannerInput): PlannerOutput {
   const last = input.history.at(-1);
   if (!last) return { text: 'How can I help?', calls: [] };
+  if (last.role === 'tool' && last.name === 'app_guide') {
+    // Answer "how do I…" from the guide's best entry.
+    const answers = (last.receipt.result as { answers?: { title: string; text: string }[] } | undefined)?.answers ?? [];
+    return { text: answers[0] ? answers[0].text : "I couldn't find that in this app's guide.", calls: [] };
+  }
   if (last.role === 'tool') return { text: summarize(input.history), calls: [] };
   if (last.role !== 'user') return { text: 'Done.', calls: [] };
 
   const text = last.text.toLowerCase();
   const tools = new Map(input.tools.map((t) => [t.name, t]));
   const call = (name: string, args: unknown): PlannerOutput => ({ calls: [{ id: callId(), name, args }] });
+  if (tools.has('app_guide') && /^(how (do|can|to|would|should)|where (do|can|is)|what (is|does|can)|can i|is there|help\b)/.test(text)) {
+    return call('app_guide', { question: last.text.slice(0, 300) });
+  }
   const nav = (): PlannerOutput | undefined => {
     if (!tools.has('nav_goto')) return undefined;
     const [best] = searchRoutes(text.replace(NAV_RE, ''), input.hints.routes, 1);

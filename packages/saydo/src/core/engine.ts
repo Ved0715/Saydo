@@ -28,6 +28,8 @@ import type {
   UIActionDescriptor,
 } from './protocol';
 import type { StoredThread, ThreadStore } from './threads';
+import type { KnowledgeDoc } from './config';
+import { consentSentence, matchesAny, rankGuide, type GuideEntry } from './guide';
 import {
   buildPath,
   findRoute,
@@ -46,6 +48,8 @@ export const NAV_TOOL = 'nav_goto';
 export const FIND_TOOL = 'entities_find';
 export const PAGE_TOOL = 'page_act';
 export const FIND_CAPABILITY_TOOL = 'find_capability';
+export const GUIDE_TOOL = 'app_guide';
+export const ASK_TOOL = 'ask_user';
 /** Pseudo capability id used for grants on page elements. */
 export const ELEMENT_CAPABILITY = 'page.element';
 /** Pseudo capability id for one approval covering several consecutive actions. */
@@ -239,6 +243,17 @@ export interface EngineOptions {
    * click instead of running with Undo. Default 'confirm'; 'off' trusts undo alone.
    */
   taint?: 'confirm' | 'off';
+  /** What the assistant knows about the app: a description, docs it answers from, and the generated guide. */
+  knowledge?: {
+    name?: string;
+    about?: string;
+    docs?: KnowledgeDoc[] | ((context: { user: SaydoUser; route: string; request?: Request }) => KnowledgeDoc[] | Promise<KnowledgeDoc[]>);
+    guide?: boolean;
+  };
+  /** What it must never know about: pages, actions, form fields, page regions, context keys. */
+  hide?: { routes?: string[]; actions?: string[]; fields?: string[]; selectors?: string[]; context?: string[] };
+  /** May ask one clarifying question with options instead of guessing. Default true. */
+  clarify?: boolean;
 }
 
 export interface Engine {
@@ -265,7 +280,11 @@ export interface Engine {
     remove(user: SaydoUser, threadId: string): Promise<{ ok: true } | TurnError>;
   };
   /** `onText` streams the assistant's reply as the model writes it (display only; the result is authoritative). */
-  handle(request: TurnRequest, user: SaydoUser, extras?: { request?: Request; onText?: (delta: string) => void }): Promise<TurnResult>;
+  handle(
+    request: TurnRequest,
+    user: SaydoUser,
+    extras?: { request?: Request; onText?: (delta: string) => void; onStep?: (label: string) => void },
+  ): Promise<TurnResult>;
   /** What the model would see for this user on this page (dev tooling). */
   inspect(
     user: SaydoUser,
@@ -338,7 +357,9 @@ type Target =
   | { kind: 'capability'; cap: Capability }
   | { kind: 'ui'; action: UIActionDescriptor }
   | { kind: 'element' }
-  | { kind: 'findCapability' };
+  | { kind: 'findCapability' }
+  | { kind: 'guide' }
+  | { kind: 'ask' };
 
 interface RequestScope {
   user: SaydoUser;
@@ -351,12 +372,14 @@ interface RequestScope {
   page?: PageInfo;
   permitted?: RouteRecord[];
   request?: Request;
-  stopReason?: 'loop' | 'invalid';
+  stopReason?: 'loop' | 'invalid' | 'question';
   usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number };
   /** The user's message this request, for the stored transcript. */
   userText?: string;
   /** Streaming: receives reply text as it is written. */
   onText?: (delta: string) => void;
+  /** Streaming: a short label for each step as it starts ("Creating a draft…"). */
+  onStep?: (label: string) => void;
   /** Some reply text was already streamed in this request (steps are separated by a line break). */
   streamed?: boolean;
   /** Model steps of this request, when `record` is set. */
@@ -558,6 +581,108 @@ export function createEngine(options: EngineOptions): Engine {
   const defaultElementRisk: Risk = options.act?.defaultRisk ?? 'write';
   const maxTools = options.maxTools ?? 40;
   const confirmBudget = options.confirmBudget ?? 5;
+  const guideEnabled = options.knowledge?.guide !== false || Boolean(options.knowledge?.docs);
+
+  /** "How do I…": the developer's docs plus a guide generated from pages and actions, ranked for the question. */
+  async function guideCall(scope: RequestScope, call: PlannerCall): Promise<Receipt> {
+    const question = String((call.args as { question?: unknown })?.question ?? '').slice(0, 300);
+    const entries: GuideEntry[] = [];
+    try {
+      const docs = options.knowledge?.docs;
+      const list = typeof docs === 'function' ? await docs({ user: scope.user, route: scope.client.route, request: scope.request }) : (docs ?? []);
+      for (const doc of list.slice(0, 1000)) {
+        entries.push({ title: String(doc.title).slice(0, 200), text: String(doc.text).slice(0, 3000), routes: doc.routes, keywords: doc.keywords, source: 'docs' });
+      }
+    } catch (error) {
+      reportError(error, {});
+    }
+    if (options.knowledge?.guide !== false) {
+      const permitted = scope.permitted ?? (await permittedRoutes(scope.user));
+      const titleOf = (pattern: string) => {
+        const record = routes.find((r) => r.pattern === pattern);
+        return record ? routeTitle(record) : pattern;
+      };
+      for (const record of permitted) {
+        const title = routeTitle(record);
+        const opens = isStaticPattern(record.pattern) ? `The "${title}" page is at ${record.pattern}.` : `The "${title}" page shows one record (${record.pattern}).`;
+        entries.push({
+          title: `Page: ${title}`,
+          text: `${opens}${record.nav?.describe ? ` ${record.nav.describe}` : ''} Ask the assistant to open it.`,
+          routes: [record.pattern],
+          keywords: record.nav?.aliases,
+          source: 'page',
+        });
+      }
+      for (const cap of [...capabilities.values()]) {
+        if (cap.expose?.assistant === false || matchesAny(cap.id, options.hide?.actions)) continue;
+        try {
+          if (cap.can && !(await cap.can(scope.user))) continue;
+        } catch {
+          continue;
+        }
+        const where = cap.entry
+          ? ` It is on the ${titleOf(cap.entry)} page.`
+          : cap.scope?.routes?.length
+            ? ` It is available on: ${cap.scope.routes.map(titleOf).join(', ')}.`
+            : '';
+        const steps = cap.steps?.length ? ` Steps: ${cap.steps.map((s, i) => `${i + 1}. ${s}`).join(' ')}.` : '';
+        entries.push({
+          title: cap.title ?? cap.describe,
+          text: `${cap.describe}.${where}${steps} ${consentSentence(cap.resolvedRisk)}`,
+          routes: cap.entry ? [cap.entry] : cap.scope?.routes,
+          source: 'action',
+        });
+      }
+      const pathname = scope.client.route.split('?')[0] || '/';
+      for (const action of scope.client.uiActions) {
+        entries.push({ title: action.describe.slice(0, 120), text: `${action.describe.slice(0, 300)}. Available on this page; the assistant can do it right away.`, routes: [pathname], source: 'action' });
+      }
+    }
+    const answers = rankGuide(question, entries, scope.client.route, 6);
+    return receipt('ok', {
+      result: { question, answers: answers.map((a) => ({ title: a.title, text: a.text })) },
+      message: answers.length ? `Found ${answers.length} guide entries.` : 'Nothing in the guide matches. Answer from your tools, or say you do not know.',
+    });
+  }
+
+  /** Progress for streaming clients: a short label as each step starts. */
+  function announceStep(scope: RequestScope, target: Target, call: PlannerCall) {
+    if (!scope.onStep) return;
+    const args = (call.args ?? {}) as Record<string, unknown>;
+    let label: string | undefined;
+    if (target.kind === 'nav') {
+      const record = routes.find((r) => r.pattern === args.route);
+      label = `Opening ${record ? routeTitle(record) : 'the page'}…`;
+    } else if (target.kind === 'find') label = 'Looking up records…';
+    else if (target.kind === 'findCapability') label = 'Finding the right action…';
+    else if (target.kind === 'guide') label = 'Checking how this app works…';
+    else if (target.kind === 'element') {
+      const element = scope.page?.elements?.find((e) => e.ref === args.ref);
+      const verb = args.action === 'fill' ? 'Filling' : args.action === 'select' ? 'Choosing in' : args.action === 'submit' ? 'Submitting' : 'Clicking';
+      label = element ? `${verb} “${element.name.slice(0, 40)}”…` : 'Using the page…';
+    } else if (target.kind === 'ui') label = `${target.action.describe.slice(0, 60)}…`;
+    else if (target.kind === 'capability') label = `${(target.cap.title ?? target.cap.describe).slice(0, 60)}…`;
+    if (!label) return;
+    try {
+      scope.onStep(label);
+    } catch {
+      // a closed stream must not break the request
+    }
+  }
+
+  /** What the developer hid: context keys and form fields never reach the model. */
+  function applyHide(client: ClientContext): ClientContext {
+    const hide = options.hide;
+    if (!hide) return client;
+    if (client.context) for (const key of hide.context ?? []) delete client.context[key];
+    if (hide.fields?.length && client.page) {
+      const hidden = new Set(hide.fields.map((f) => f.toLowerCase()));
+      for (const element of client.page.elements) {
+        for (const key of Object.keys(element.formValues ?? {})) if (hidden.has(key.toLowerCase())) element.formValues![key] = '[hidden]';
+      }
+    }
+    return client;
+  }
   const mask = redactor(options.redact ?? 'basic');
   const RISK_RANK: Record<Risk, number> = { read: 0, reversible: 1, write: 2, destructive: 3, never: 4 };
   const capabilities = new Map<string, Capability>();
@@ -617,6 +742,7 @@ export function createEngine(options: EngineOptions): Engine {
     const out: RouteRecord[] = [];
     for (const record of routes) {
       if (record.nav?.hidden || record.nav?.expose?.assistant === false) continue;
+      if (matchesAny(record.pattern, options.hide?.routes)) continue;
       if (!satisfiable(record)) continue;
       try {
         if (record.nav?.access && !(await record.nav.access(user))) continue;
@@ -724,7 +850,7 @@ export function createEngine(options: EngineOptions): Engine {
   async function offeredCapabilities(scope: RequestScope): Promise<Capability[]> {
     const out: Capability[] = [];
     for (const cap of [...capabilities.values()].sort((a, b) => a.id.localeCompare(b.id))) {
-      if (cap.expose?.assistant === false) continue;
+      if (cap.expose?.assistant === false || matchesAny(cap.id, options.hide?.actions)) continue;
       if (cap.kind === 'client' && !scope.client.mounted.includes(cap.id) && !cap.entry) continue;
       try {
         if (cap.can && !(await cap.can(scope.user))) continue;
@@ -857,6 +983,37 @@ export function createEngine(options: EngineOptions): Engine {
       targets.set(FIND_CAPABILITY_TOOL, { kind: 'findCapability' });
     }
 
+    if (guideEnabled) {
+      list.push({
+        name: GUIDE_TOOL,
+        description: `Look up how to do something in ${options.knowledge?.name ?? options.appName ?? 'this app'}: pages, what each action does and where, and the app's own help. Use it for "how do I…" questions, then offer to do it.`,
+        inputSchema: {
+          type: 'object',
+          properties: { question: { type: 'string', maxLength: 300 } },
+          required: ['question'],
+          additionalProperties: false,
+        },
+      });
+      targets.set(GUIDE_TOOL, { kind: 'guide' });
+    }
+    if (options.clarify !== false) {
+      list.push({
+        name: ASK_TOOL,
+        description:
+          'Ask the user one short clarifying question when the request is ambiguous (for example, which of several records they mean) instead of guessing. Give 2 to 6 short options. The turn ends; their answer comes as the next message.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', maxLength: 200 },
+            options: { type: 'array', items: { type: 'string', maxLength: 80 }, minItems: 2, maxItems: 6 },
+          },
+          required: ['question', 'options'],
+          additionalProperties: false,
+        },
+      });
+      targets.set(ASK_TOOL, { kind: 'ask' });
+    }
+
     const elements = scope.page?.elements ?? [];
     if (elementsMode !== 'none' && elements.length) {
       list.push({
@@ -910,7 +1067,10 @@ export function createEngine(options: EngineOptions): Engine {
       '- If a result has status needs_confirmation, the user must approve in the app. Say so briefly and stop.',
       '- Only help with this app and what the user can do in it; politely decline unrelated tasks.',
       '- Reply in one or two short sentences.',
+      ...(guideEnabled ? [`- For "how do I…" questions, call ${GUIDE_TOOL}, explain the steps briefly, then offer to do it.`] : []),
+      ...(options.clarify !== false ? [`- If you cannot tell what the user means (several matching records, a missing detail), call ${ASK_TOOL} instead of guessing.`] : []),
     ];
+    if (options.knowledge?.about) rules.push(`About ${options.knowledge.name ?? options.appName ?? 'this app'}: ${options.knowledge.about.slice(0, 2000)}`);
     let extra: string | undefined;
     try {
       extra = typeof options.instructions === 'function' ? options.instructions({ user: scope.user, route: scope.client.route }) : options.instructions;
@@ -1568,7 +1728,27 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     }
     scope.state.seen.push(signature);
+    announceStep(scope, target, call);
 
+    if (target.kind === 'guide') {
+      pushReceipt(scope, call, await guideCall(scope, call), 'Guide');
+      return {};
+    }
+    if (target.kind === 'ask') {
+      const args = (call.args ?? {}) as { question?: unknown; options?: unknown };
+      const clean = (value: unknown, max: number) => String(value ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
+      const question = clean(args.question, 200);
+      const choices = (Array.isArray(args.options) ? args.options : []).map((o) => clean(o, 80)).filter(Boolean).slice(0, 6);
+      if (!question || choices.length < 2) {
+        pushReceipt(scope, call, receipt('invalid_args', { message: 'Give a question and 2 to 6 options.' }), 'Ask');
+        return {};
+      }
+      scope.state.history.push({ role: 'tool', id: call.id, name: call.name, receipt: receipt('ok', { message: 'Asked the user; their answer comes as the next message.' }) });
+      scope.events.push({ type: 'question', question, options: choices });
+      scope.stop = true;
+      scope.stopReason = 'question';
+      return {};
+    }
     if (target.kind === 'nav') {
       const permitted = await permittedRoutes(scope.user);
       pushReceipt(scope, call, await navCall(scope, call, permitted), 'Open page');
@@ -1748,7 +1928,7 @@ export function createEngine(options: EngineOptions): Engine {
             }
           : undefined;
         let stepStreamed = false;
-        output = await options.planner.plan(plannerInput, { onText });
+        output = await options.planner.plan(plannerInput, { onText, request: scope.request });
         if (options.record) (scope.recording ??= []).push({ input: plannerInput, output: structuredClone(output) });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1796,7 +1976,7 @@ export function createEngine(options: EngineOptions): Engine {
         return finish(scope);
       }
     }
-    if (scope.stop || scope.state.steps >= maxSteps) {
+    if (scope.stopReason !== 'question' && (scope.stop || scope.state.steps >= maxSteps)) {
       const message =
         scope.stopReason === 'invalid'
           ? 'I could not put that request together correctly. Could you rephrase it or add a detail?'
@@ -1862,6 +2042,7 @@ export function createEngine(options: EngineOptions): Engine {
     if (scope.userText) entries.push({ at, role: 'user', text: scope.userText });
     for (const event of scope.events) {
       if (event.type === 'assistant') entries.push({ at, role: 'assistant', text: event.text.slice(0, 4000) });
+      else if (event.type === 'question') entries.push({ at, role: 'assistant', text: event.question, options: event.options });
       // Mirror the palette: successful navigations show only as the assistant's line.
       else if (event.capability === NAV_TOOL && event.status === 'ok') continue;
       else entries.push({ at, role: 'action', text: (event.message ?? event.title).slice(0, 500), status: event.status, capability: event.capability });
@@ -2281,7 +2462,7 @@ export function createEngine(options: EngineOptions): Engine {
     const key = origin === 'external' ? 'external' : 'browserAgent';
     const out: Capability[] = [];
     for (const cap of [...capabilities.values()].sort((a, b) => a.id.localeCompare(b.id))) {
-      if (cap.kind !== 'server' || cap.resolvedRisk === 'never' || cap.expose?.[key] !== true) continue;
+      if (cap.kind !== 'server' || cap.resolvedRisk === 'never' || cap.expose?.[key] !== true || matchesAny(cap.id, options.hide?.actions)) continue;
       try {
         if (cap.can && !(await cap.can(user))) continue;
       } catch (error) {
@@ -2493,7 +2674,13 @@ export function createEngine(options: EngineOptions): Engine {
         routes: permitted
           .filter((r) => isStaticPattern(r.pattern))
           .map((r) => ({ pattern: r.pattern, title: routeTitle(r), aliases: r.nav?.aliases })),
-        settings: { page: seePage, elements: elementsMode, ...(threads ? { history: true } : {}) },
+        settings: {
+          page: seePage,
+          elements: elementsMode,
+          ...(threads ? { history: true } : {}),
+          ...(options.hide?.fields?.length ? { privateFields: options.hide.fields } : {}),
+          ...(options.hide?.selectors?.length ? { privateSelectors: options.hide.selectors } : {}),
+        },
         protocolVersion: PROTOCOL_VERSION,
         ...(options.deploymentId ? { deploymentId: options.deploymentId } : {}),
         ...(await (async () => {
@@ -2504,7 +2691,7 @@ export function createEngine(options: EngineOptions): Engine {
     },
 
     async inspect(user, raw) {
-      const client = normalizeClient(raw);
+      const client = applyHide(normalizeClient(raw));
       const state = (await loadState(undefined, user, client)) as ThreadState;
       const scope: RequestScope = { user, client, state, events: [], effects: [], stop: false };
       await prepare(scope);
@@ -2550,9 +2737,13 @@ export function createEngine(options: EngineOptions): Engine {
     },
   };
 
-  async function processRequest(request: TurnRequest, user: SaydoUser, extras?: { request?: Request; onText?: (delta: string) => void }): Promise<TurnResult> {
+  async function processRequest(
+    request: TurnRequest,
+    user: SaydoUser,
+    extras?: { request?: Request; onText?: (delta: string) => void; onStep?: (label: string) => void },
+  ): Promise<TurnResult> {
     {
-      const client = normalizeClient(request.client, mask);
+      const client = applyHide(normalizeClient(request.client, mask));
       if (client.manifestHash && client.manifestHash !== manifestHash) {
         return fail('reload_required', 'The app was updated since this page loaded.', 'Reload the page.');
       }
@@ -2568,7 +2759,7 @@ export function createEngine(options: EngineOptions): Engine {
 
       const state = await loadState(request.state, user, client);
       if ('ok' in state) return state;
-      const scope: RequestScope = { user, client, state, events: [], effects: [], stop: false, request: extras?.request, onText: extras?.onText };
+      const scope: RequestScope = { user, client, state, events: [], effects: [], stop: false, request: extras?.request, onText: extras?.onText, onStep: extras?.onStep };
 
       try {
         if (request.type === 'message') {

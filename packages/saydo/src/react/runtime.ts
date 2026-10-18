@@ -16,7 +16,7 @@ import {
   type TurnResult,
 } from '../core/index';
 import { actOnElement, identify, snapshotPage, type ElementAction } from './page';
-import type { Registry } from './registry';
+import { normalizePhrase, type Registry } from './registry';
 
 export interface RouterAdapter {
   push(href: string): void;
@@ -29,7 +29,12 @@ export interface ChatItem {
   role: 'user' | 'assistant' | 'action' | 'notice';
   text: string;
   status?: ReceiptStatus;
+  /** A clarifying question: the answers the user can click. */
+  options?: string[];
 }
+
+/** Lookups whose success is not news to the user (the answer that follows is). */
+const QUIET_TOOLS = new Set(['nav_goto', 'app_guide', 'find_capability', 'entities_find']);
 
 export interface ToastItem {
   id: string;
@@ -55,6 +60,8 @@ export interface RuntimeSnapshot {
   threadId?: string;
   /** The reply as the model writes it (streaming); replaced by the final result. */
   streaming?: string;
+  /** What the assistant is doing right now ("Creating a draft…"), while streaming. */
+  progress?: string;
 }
 
 /** Dev-only view of what the model sees on this page. */
@@ -86,6 +93,10 @@ export interface RuntimeOptions {
   onInvalidate?: (keys?: string[]) => void;
   /** Show replies as the model writes them. Default true. */
   stream?: boolean;
+  /** Extra headers on every request to the endpoint (a function is read at send time). */
+  headers?: Record<string, string> | (() => Record<string, string>);
+  /** Answer everyday phrases in the browser (undo, go back, declared action phrases). Default true. */
+  instant?: boolean;
 }
 
 let itemSeq = 0;
@@ -96,7 +107,7 @@ const newRequestId = () =>
 const nextId = () => `i${++itemSeq}`;
 
 /** Read an NDJSON turn stream: text events go to `onText`; the final result is returned. */
-async function readStream(body: ReadableStream<Uint8Array>, onText: (delta: string) => void): Promise<unknown> {
+async function readStream(body: ReadableStream<Uint8Array>, onText: (delta: string) => void, onStep?: (label: string) => void): Promise<unknown> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -110,6 +121,7 @@ async function readStream(body: ReadableStream<Uint8Array>, onText: (delta: stri
       if (!line) continue;
       const event = JSON.parse(line) as { type: string; text?: string; result?: unknown };
       if (event.type === 'text' && typeof event.text === 'string') onText(event.text);
+      else if (event.type === 'step' && typeof event.text === 'string') onStep?.(event.text);
       else if (event.type === 'result') return event.result;
     }
     if (done) break;
@@ -243,7 +255,12 @@ export class SaydoRuntime {
     const settings = this.snapshot.manifest?.settings ?? { page: true, elements: 'all' as const };
     let page: ClientContext['page'];
     if (typeof document !== 'undefined' && (settings.page || settings.elements !== 'none')) {
-      const { snapshot, refs } = snapshotPage({ elements: settings.elements, maxChars: this.options.pageBudget });
+      const { snapshot, refs } = snapshotPage({
+        elements: settings.elements,
+        maxChars: this.options.pageBudget,
+        privateFields: this.snapshot.manifest?.settings.privateFields,
+        privateSelectors: this.snapshot.manifest?.settings.privateSelectors,
+      });
       this.pageRefs = refs;
       page = settings.page ? snapshot : { text: '', elements: snapshot.elements, truncated: false };
     }
@@ -294,6 +311,7 @@ export class SaydoRuntime {
     this.controller?.abort();
     this.controller = undefined;
     this.add({ role: 'user', text: message });
+    if (await this.instant(message)) return;
     const local = fastPath(message, this.snapshot.manifest?.routes ?? []);
     if (local && this.options.registry.activeGuard()) {
       this.add({ role: 'notice', text: this.options.messages?.guardBlocked ?? this.options.registry.activeGuard()!, status: 'blocked' });
@@ -306,6 +324,42 @@ export class SaydoRuntime {
       return;
     }
     await this.request({ type: 'message', text: message, state: this.state, client: this.client() });
+  }
+
+  /** Everyday requests answered in the browser in milliseconds: no model call, no cost. */
+  private async instant(message: string): Promise<boolean> {
+    if (this.options.instant === false) return false;
+    const normal = normalizePhrase(message);
+    // Phrases the developer declared on a UI action.
+    const action = this.options.registry.byPhrase(message);
+    if (action && !(action.inputSchema && Array.isArray((action.inputSchema as { required?: unknown[] }).required) && (action.inputSchema as { required: unknown[] }).required.length)) {
+      try {
+        const out = (await action.run({}, { signal: new AbortController().signal, headers: {}, fetch, invocationId: newRequestId() })) as { message?: string } | undefined;
+        this.add({ role: 'assistant', text: out?.message ?? `Done: ${action.describe ?? action.id}.` });
+      } catch {
+        this.add({ role: 'notice', text: 'That did not work. Try again, or ask in other words.', status: 'error' });
+      }
+      return true;
+    }
+    if (/^(undo|undo (that|it|this|the last (one|change|action)))$/.test(normal)) {
+      const toast = [...this.snapshot.toasts].reverse().find((t) => t.undo);
+      if (toast?.undo) {
+        await this.undo(toast.undo.token);
+        return true;
+      }
+      return false;
+    }
+    if (/^(go )?back$|^go back( to the previous page)?$|^previous page$/.test(normal) && typeof history !== 'undefined' && history.length > 1) {
+      if (this.options.registry.activeGuard()) return false; // let the server explain the unsaved changes
+      this.add({ role: 'assistant', text: 'Going back.' });
+      history.back();
+      return true;
+    }
+    if (/^(new chat|start over|clear( the)? chat)$/.test(normal)) {
+      this.reset();
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -412,7 +466,7 @@ export class SaydoRuntime {
   reset() {
     this.generation++; // results of requests still in flight belong to the old conversation
     this.state = undefined;
-    this.set({ items: [], confirm: undefined, confirmError: undefined, threadId: undefined, streaming: undefined });
+    this.set({ items: [], confirm: undefined, confirmError: undefined, threadId: undefined, streaming: undefined, progress: undefined });
   }
 
   /** Earlier conversations (when the app stores them on the server). */
@@ -437,7 +491,7 @@ export class SaydoRuntime {
       confirm: undefined,
       confirmError: undefined,
       threadId: result.threadId,
-      items: result.items.map((entry) => ({ id: nextId(), role: entry.role, text: entry.text, status: entry.status })),
+      items: result.items.map((entry) => ({ id: nextId(), role: entry.role, text: entry.text, status: entry.status, options: entry.options })),
     });
     return true;
   }
@@ -459,27 +513,32 @@ export class SaydoRuntime {
             if (generation === this.generation) this.set({ streaming: (this.snapshot.streaming ?? '') + delta });
           }
         : undefined;
-      const result = (await this.post({ ...body, requestId: newRequestId(), ...(stream ? { stream: true } : {}) }, true, onText)) as TurnResult | null;
-      this.set({ streaming: undefined });
+      const onStep = stream
+        ? (label: string) => {
+            if (generation === this.generation) this.set({ progress: label });
+          }
+        : undefined;
+      const result = (await this.post({ ...body, requestId: newRequestId(), ...(stream ? { stream: true } : {}) }, true, onText, onStep)) as TurnResult | null;
+      this.set({ streaming: undefined, progress: undefined });
       if (generation !== this.generation) return; // the user started a new conversation meanwhile
       if (result) await this.handle(result, restoreConfirm);
       else if (restoreConfirm) this.set({ confirm: restoreConfirm });
     } finally {
-      this.set({ busy: false, streaming: undefined });
+      this.set({ busy: false, streaming: undefined, progress: undefined });
     }
   }
 
-  private async post(body: unknown, report = true, onText?: (delta: string) => void): Promise<unknown> {
+  private async post(body: unknown, report = true, onText?: (delta: string) => void, onStep?: (label: string) => void): Promise<unknown> {
     const attempt = async () => {
       if (onText) this.set({ streaming: undefined });
       const response = await (this.options.fetch ?? fetch)(this.options.endpoint, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...(typeof this.options.headers === 'function' ? this.options.headers() : this.options.headers), 'content-type': 'application/json' },
         body: JSON.stringify(body),
         credentials: 'same-origin',
       });
       if (onText && response.body && (response.headers.get('content-type') ?? '').includes('application/x-ndjson')) {
-        return readStream(response.body, onText);
+        return readStream(response.body, onText, onStep);
       }
       const data = await response.json().catch(() => null);
       if (!data) throw new Error(`Unexpected response (${response.status})`);
@@ -524,7 +583,8 @@ export class SaydoRuntime {
     if (result.threadId && result.threadId !== this.snapshot.threadId) this.set({ threadId: result.threadId });
     for (const event of result.events) {
       if (event.type === 'assistant') this.add({ role: 'assistant', text: event.text });
-      else if (event.status !== 'ok' || event.capability !== 'nav_goto') {
+      else if (event.type === 'question') this.add({ role: 'assistant', text: event.question, options: event.options });
+      else if (event.status !== 'ok' || !QUIET_TOOLS.has(event.capability)) {
         this.add({ role: 'action', text: event.message ?? `${event.title}: ${event.status}`, status: event.status });
       }
     }

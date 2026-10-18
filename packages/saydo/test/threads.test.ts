@@ -104,7 +104,7 @@ describe('stored conversations', () => {
     const threads = memoryThreadStore();
     const handler = createHandler(
       { routes: app.routes, capabilities: app.capabilities },
-      { secret: SECRET, planner: mockPlanner({ script: [say('Hi!')] }), getUser: () => alice, rateLimit: false, lockfile: false, store: 'memory', threads },
+      { getUser: () => alice, store: 'memory', advanced: { secret: SECRET, planner: mockPlanner({ script: [say('Hi!')] }), lockfile: false }, limits: { perMinute: false }, conversations: { store: threads } },
     );
     const post = async (body: unknown) =>
       (await handler(new Request('https://app.test/api/saydo', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://app.test' }, body: JSON.stringify(body) }))).json();

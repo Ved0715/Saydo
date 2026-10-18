@@ -77,7 +77,7 @@ describe('createHandler', () => {
   const db = makeDb();
   const app = makeApp(db);
   const registry = { routes: app.routes, capabilities: app.capabilities };
-  const handler = createHandler(registry, { secret: SECRET, planner: mockPlanner(), getUser: () => ({ id: 'u1' }), rateLimit: 3, lockfile: false });
+  const handler = createHandler(registry, { getUser: () => ({ id: 'u1' }), advanced: { secret: SECRET, planner: mockPlanner(), lockfile: false }, limits: { perMinute: 3 } });
 
   it('serves the per-user manifest and answers turns', async () => {
     const manifest = await (await handler(post({ type: 'manifest' }))).json();
@@ -102,16 +102,16 @@ describe('createHandler', () => {
     env.NODE_ENV = 'production';
     delete process.env.SAYDO_SECRET;
     try {
-      const noSecret = await (await createHandler(registry, { planner: mockPlanner(), lockfile: false })(post({ type: 'manifest' }))).json();
+      const noSecret = await (await createHandler(registry, { advanced: { planner: mockPlanner(), lockfile: false } })(post({ type: 'manifest' }))).json();
       expect(noSecret).toMatchObject({ ok: false, fix: expect.stringContaining('SAYDO_SECRET') });
-      const noUser = await (await createHandler(registry, { secret: SECRET, planner: mockPlanner(), store: 'memory', lockfile: false })(post({ type: 'manifest' }))).json();
-      expect(noUser).toMatchObject({ ok: false, code: 'no_user', fix: expect.stringContaining('anonymous: true') });
-      const optedIn = await createHandler(registry, { secret: SECRET, planner: mockPlanner(), store: 'memory', lockfile: false, anonymous: true })(post({ type: 'manifest' }));
+      const noUser = await (await createHandler(registry, { store: 'memory', advanced: { secret: SECRET, planner: mockPlanner(), lockfile: false } })(post({ type: 'manifest' }))).json();
+      expect(noUser).toMatchObject({ ok: false, code: 'no_user', fix: expect.stringContaining("getUser: 'anonymous'") });
+      const optedIn = await createHandler(registry, { store: 'memory', getUser: 'anonymous', advanced: { secret: SECRET, planner: mockPlanner(), lockfile: false } })(post({ type: 'manifest' }));
       expect(optedIn.status).toBe(200);
       const getUser = () => ({ id: 'u1' });
-      const noStore = await (await createHandler(registry, { secret: SECRET, planner: mockPlanner(), lockfile: false, getUser })(post({ type: 'manifest' }))).json();
+      const noStore = await (await createHandler(registry, { getUser, advanced: { secret: SECRET, planner: mockPlanner(), lockfile: false } })(post({ type: 'manifest' }))).json();
       expect(noStore).toMatchObject({ ok: false, fix: expect.stringContaining('store') });
-      const noModel = await (await createHandler(registry, { secret: SECRET, store: 'memory', lockfile: false, getUser })(post({ type: 'manifest' }))).json();
+      const noModel = await (await createHandler(registry, { store: 'memory', getUser, advanced: { secret: SECRET, lockfile: false } })(post({ type: 'manifest' }))).json();
       expect(noModel).toMatchObject({ ok: false, fix: expect.stringContaining('model') });
     } finally {
       env.NODE_ENV = previous;
@@ -126,18 +126,12 @@ describe('withGrant', () => {
     const app = makeApp(db);
     const handler = createHandler(
       { routes: app.routes, capabilities: app.capabilities },
-      {
-        secret: SECRET,
-        getUser: () => ({ id: 'u1' }),
-        rateLimit: false,
-        lockfile: false,
-        planner: mockPlanner({
+      { getUser: () => ({ id: 'u1' }), advanced: { secret: SECRET, lockfile: false, planner: mockPlanner({
           script: [
             (input) => ({ calls: [{ id: 'pub', name: 'posts_publish', args: { post: input.page.entities[0]!.handle } }] }),
             { text: 'Published.', calls: [] },
           ],
-        }),
-      },
+        }) }, limits: { perMinute: false } },
     );
     let published = 0;
     const route = withGrant(

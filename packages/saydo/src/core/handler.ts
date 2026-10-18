@@ -11,21 +11,25 @@ import { seal, unseal } from './seal';
 import type { RegistrationCredential, WebAuthnStepUp } from './webauthn';
 import { isToolSource, type ToolEntry } from './sources';
 import type { EngineOptions } from './engine';
+import { configWarnings, defineConfig, mergeConfig, type SaydoConfig } from './config';
 import type { TurnError, TurnResult } from './protocol';
 import type { RouteRecord } from './route';
 import type { SaydoUser } from './types';
 
 export { GRANT_HEADER };
 
-/** Everything configurable, usually written once in `saydo.config.ts`. */
-export interface SaydoOptions {
+/**
+ * Internal, flat form of the configuration. The public, grouped shape is `SaydoConfig`
+ * (see ./config); `normalizeConfig` maps one onto the other.
+ */
+export interface HandlerOptions {
   /** Any AI SDK model. Omit in dev to use the deterministic mock planner. */
   /**
    * Any AI SDK model, or several in order of preference (failover on errors), or a function that
    * picks per request: `({ user, route }) => user.plan === 'pro' ? strongModel : fastModel`
    * (also how a tenant brings its own key: return a provider created with that key).
    */
-  model?: LanguageModel | LanguageModel[] | ((context: { user: SaydoUser; route: string }) => LanguageModel | LanguageModel[]);
+  model?: LanguageModel | LanguageModel[] | ((context: { user: SaydoUser; route: string; request?: Request }) => LanguageModel | LanguageModel[]);
   /** Bring your own planner (custom agent, AG-UI backend). The gate still applies. */
   planner?: Planner;
   /**
@@ -108,13 +112,62 @@ export interface SaydoOptions {
   deploymentId?: string;
   /** Path of the capability lockfile, or false to disable it. Default `saydo.capabilities.json` in cwd. */
   lockfile?: string | false;
+  threadTtlMs?: number;
+  taint?: EngineOptions['taint'];
+  clarify?: boolean;
+  knowledge?: EngineOptions['knowledge'];
+  hide?: EngineOptions['hide'];
 }
 
-export type SaydoConfig = SaydoOptions;
+/** The public configuration (grouped). Kept under its old name too. */
+export type SaydoOptions = SaydoConfig;
+export { defineConfig, mergeConfig, type SaydoConfig };
 
-/** Typed helper for `saydo.config.ts`. */
-export function defineConfig(config: SaydoConfig): SaydoConfig {
-  return config;
+/** Map the grouped, public configuration onto the flat options the handler and engine use. */
+export function normalizeConfig(config: SaydoConfig): HandlerOptions {
+  const day = 24 * 60 * 60_000;
+  return {
+    model: config.model,
+    planner: config.advanced?.planner,
+    getUser: typeof config.getUser === 'function' ? config.getUser : undefined,
+    anonymous: config.getUser === 'anonymous',
+    limits: config.limits?.store,
+    secret: config.advanced?.secret,
+    store: config.store,
+    appName: config.knowledge?.name,
+    instructions: config.instructions,
+    rateLimit: config.limits?.perMinute,
+    maxSteps: config.limits?.steps,
+    audit: config.observe?.audit,
+    capabilities: config.capabilities,
+    tools: config.tools,
+    see: config.see?.page === undefined ? undefined : { page: config.see.page },
+    act: config.act
+      ? { elements: config.act.elements, defaultRisk: config.act.defaultRisk, annotationsCanLowerRisk: config.act.annotationsCanLowerRisk }
+      : undefined,
+    maxTools: config.limits?.tools,
+    redact: config.see?.redact,
+    budget: config.limits?.perDay ? { requestsPerDay: config.limits.perDay.requests, tokensPerDay: config.limits.perDay.tokens } : undefined,
+    onUsage: config.observe?.onUsage,
+    threads: config.conversations?.store,
+    threadTtlMs: config.conversations?.retentionDays !== undefined ? config.conversations.retentionDays * day : undefined,
+    pricing: config.observe?.pricing,
+    tracer: config.observe?.tracer,
+    authorize: config.act?.authorize,
+    search: config.advanced?.search,
+    record: config.observe?.record,
+    stepUp: config.act?.stepUp,
+    confirmBudget: config.act?.confirmBudget,
+    taint: config.act?.taint,
+    clarify: config.act?.clarify,
+    knowledge: config.knowledge,
+    hide: config.hide,
+    external: config.agents
+      ? { approvals: config.agents.approvals, approvalUrl: config.agents.approvalUrl, authenticate: config.agents.authenticate, appOrigin: config.agents.appOrigin }
+      : undefined,
+    deploymentId: config.observe?.deploymentId,
+    lockfile: config.advanced?.lockfile,
+  };
 }
 
 export interface Registry {
@@ -231,8 +284,10 @@ export function syncLockfile(
 /** A route handler: `export const POST = createHandler(…)`. */
 export type SaydoHandler = (request: Request) => Promise<Response>;
 
-export function createHandler(registry: Registry, overrides: SaydoOptions = {}): SaydoHandler {
-  const options: SaydoOptions = { ...registry.config, ...overrides };
+export function createHandler(registry: Registry, overrides: SaydoConfig = {}): SaydoHandler {
+  const config = mergeConfig(registry.config, overrides);
+  for (const warning of configWarnings(config)) console.warn(`[saydo] ${warning}`);
+  const options: HandlerOptions = normalizeConfig(config);
   const dev = process.env.NODE_ENV !== 'production';
   const counters = options.limits ?? memoryLimitStore();
   const limited = options.rateLimit === false ? async () => false : createRateLimiter(counters, options.rateLimit ?? 30);
@@ -303,7 +358,7 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
         error: {
           status: 'error',
           message: 'No getUser is configured, so the assistant cannot tell users apart.',
-          fix: 'Set `getUser` in saydo.config.ts (your auth). For a public app without sign-in, set `anonymous: true`: each browser then gets its own isolated identity.',
+          fix: "Set `getUser` in saydo.config.ts (your auth). For a public app without sign-in, set `getUser: 'anonymous'`: each browser then gets its own isolated identity.",
           code: 'no_user',
         },
       };
@@ -354,6 +409,11 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
       pricing: options.pricing,
       tracer: options.tracer,
       threads: options.threads,
+      threadTtlMs: options.threadTtlMs,
+      taint: options.taint,
+      clarify: options.clarify,
+      knowledge: options.knowledge,
+      hide: options.hide,
       authorize: options.authorize,
       search: options.search,
       record: options.record,
@@ -475,7 +535,11 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
           const send = (event: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
           let result: TurnResult;
           try {
-            result = await ready.engine.handle(body as never, user, { request, onText: (text) => send({ type: 'text', text }) });
+            result = await ready.engine.handle(body as never, user, {
+              request,
+              onText: (text) => send({ type: 'text', text }),
+              onStep: (text) => send({ type: 'step', text }),
+            });
           } catch (error) {
             console.error('[saydo] request failed', error);
             result = { ok: false, status: 'error', message: 'The assistant failed to process this request.', fix: 'Try again.' };

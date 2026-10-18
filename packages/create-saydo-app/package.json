@@ -18,5 +18,30 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "author": "Vedant",
+  "homepage": "https://github.com/Ved0715/Saydo#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ved0715/Saydo.git",
+    "directory": "packages/create-saydo-app"
+  },
+  "bugs": {
+    "url": "https://github.com/Ved0715/Saydo/issues"
+  },
+  "keywords": [
+    "ai",
+    "assistant",
+    "react",
+    "nextjs",
+    "agents",
+    "llm",
+    "mcp",
+    "webmcp",
+    "ai-sdk",
+    "framework"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -17,7 +17,7 @@ export interface AISdkPlannerOptions {
    * Any AI SDK model, e.g. `anthropic('claude-sonnet-5-5')`. Pass several to fail over:
    * when one errors (outage, 429, timeout), the next is tried for that step.
    */
-  model: LanguageModel | LanguageModel[] | ((context: NonNullable<PlannerInput['context']>) => LanguageModel | LanguageModel[]);
+  model: LanguageModel | LanguageModel[] | ((context: NonNullable<PlannerInput['context']> & { request?: Request }) => LanguageModel | LanguageModel[]);
   maxOutputTokens?: number;
   maxRetries?: number;
   /** Mark the stable instructions as a prompt-cache breakpoint (Anthropic). Default true. */
@@ -72,7 +72,7 @@ export function toModelMessages(history: HistoryItem[]): ModelMessage[] {
 export function aiSdkPlanner(options: AISdkPlannerOptions): Planner {
   return {
     name: 'ai-sdk',
-    async plan(input, { signal, onText } = {}) {
+    async plan(input, { signal, onText, request } = {}) {
       const tools: ToolSet = {};
       for (const t of input.tools) {
         tools[t.name] = tool({
@@ -92,7 +92,8 @@ export function aiSdkPlanner(options: AISdkPlannerOptions): Planner {
           ]
         : input.instructions;
       // Per request (tier, tenant key, route), or one fixed choice.
-      const chosen = typeof options.model === 'function' ? options.model(input.context ?? { user: { id: 'unknown' }, route: '/' }) : options.model;
+      const chosen =
+        typeof options.model === 'function' ? options.model({ ...(input.context ?? { user: { id: 'unknown' }, route: '/' }), request }) : options.model;
       const models = Array.isArray(chosen) ? chosen : [chosen];
       if (!models.length) throw new Error('[saydo] aiSdkPlanner needs at least one model.');
       const call = (model: LanguageModel) => ({

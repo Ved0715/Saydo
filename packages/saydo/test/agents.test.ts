@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createMCPClient, type JSONRPCMessage, type MCPTransport } from '@ai-sdk/mcp';
 import { defineCapability, type InvokeResult } from '../src/core/index';
 import { createMcpHandler } from '../src/core/mcp';
+import type { SaydoConfig } from '../src/core/config';
 import { mockPlanner } from '../src/core/server';
 import { alice, bob, makeApp, makeDb, SECRET, setup, type Db } from './fixtures';
 
@@ -161,15 +162,7 @@ function mcpHandler(db: Db, authenticate?: (r: Request) => { id: string } | null
   const app = makeApp(db);
   return createMcpHandler(
     { routes: app.routes, capabilities: agentCaps(db) },
-    {
-      secret: SECRET,
-      planner: mockPlanner(),
-      getUser: () => alice,
-      rateLimit: false,
-      lockfile: false,
-      appName: 'Blog',
-      external: authenticate ? { authenticate, approvals: 'delegated', appOrigin: 'https://blog.test' } : undefined,
-    },
+    { getUser: () => alice, agents: authenticate ? { authenticate, approvals: 'delegated', appOrigin: 'https://blog.test' } : undefined, advanced: { secret: SECRET, planner: mockPlanner(), lockfile: false }, limits: { perMinute: false }, knowledge: { name: 'Blog' } },
   );
 }
 
@@ -257,14 +250,12 @@ describe('MCP server', () => {
     const { createHandler } = await import('../src/core/handler');
     const { MemoryGrantStore } = await import('../src/core/server');
     const store = new MemoryGrantStore();
-    const options = {
-      secret: SECRET,
-      planner: mockPlanner(),
+    const options: SaydoConfig = {
       getUser: () => alice,
-      rateLimit: false as const,
-      lockfile: false as const,
       store,
-      external: { authenticate: tokens, approvals: 'delegated' as const, appOrigin: 'https://blog.test' },
+      agents: { authenticate: tokens, approvals: 'delegated', appOrigin: 'https://blog.test' },
+      limits: { perMinute: false },
+      advanced: { secret: SECRET, planner: mockPlanner(), lockfile: false },
     };
     const registry = { routes: app.routes, capabilities: agentCaps(db) };
     const mcp = createMcpHandler(registry, options);

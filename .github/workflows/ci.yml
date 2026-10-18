@@ -79,6 +79,10 @@ jobs:
         run: pnpm --filter vite-demo build
         env:
           CI: 'true'
+      - name: Website (built with Saydo)
+        run: pnpm --filter saydo-site build
+        env:
+          CI: 'true'
 
   package:
     name: Install from tarballs

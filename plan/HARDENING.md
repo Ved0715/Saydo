@@ -254,3 +254,21 @@ Date: 2026-10-18. This review read the actual code and was precise, so most find
 | Per-request config | 🔧 `instructions: ({ user, route }) => …`. |
 
 **Still open:** a measured token-cost comparison of tool search vs prompt caching under real load. It needs a real provider, real traffic and a budget, so it belongs to the testing phase; `onUsage`, `pricing` and `tracer` produce the numbers.
+
+---
+
+# Round 4: product review (live feel, knowledge, config shape)
+
+| # | Suggestion | Result |
+|---|---|---|
+| 1 | Streaming with visible steps | 🔧 Text streamed in round 3; now each step is also streamed as it starts ("Opening Billing…", "Creating a draft…"), shown as a live status line in the palette and in `saydo/dom`. |
+| 2 | Answer "how do I…" from the app itself | 🔧 `app_guide` tool, built from three sources: `knowledge.docs` (your how-tos, static or per request), a guide generated from routes, page titles and action descriptions (where each lives, what needs confirmation, workflow steps), and the UI actions on the current page. The assistant explains the steps, then offers to do them. `knowledge.guide: false` turns off the generated part. The demo planner uses it too. |
+| 3 | Ask instead of guess | 🔧 `ask_user` tool: one short question with 2–6 options, rendered as clickable choices. The turn ends and the click is the next message. `act.clarify: false` turns it off. |
+| 4 | A wider instant path | 🔧 Developer-declared `phrases` on UI actions run in the browser with no model call. "undo that", "go back" and "new chat" are instant. Navigation by page name already was. |
+| 5 | Config down to the essentials | 🔧 `saydo.config.ts` is now structured: `model`, `getUser`, `store` and `instructions` at the top, then one group per question: `knowledge` (what it knows), `see` (what it may look at), `hide` (what it must never know: routes, actions, fields, selectors, context keys), `act` (what it may do and how it asks), `tools`, `limits`, `conversations`, `agents`, `observe`, `advanced`. Old or misplaced keys print a warning naming the new place. `getUser: 'anonymous'` replaces the separate flag. |
+| 6 | A lighter browser side | Measured: about 25 KB gzipped before the app's own minification. 🗺 Loading the palette only when first opened is the next step; `ui={false}` already ships none of it. |
+
+**Also:**
+- The website (`site/`) is a Next.js app built on Saydo: ⌘K everywhere, and a playground where developers try a board with the built-in demo planner or their own Anthropic/OpenAI key.
+- The key is sent per request, used once, and never stored or logged. Provider errors (a bad key, rate limits) become plain answers, so one visitor's key can't trip the shared circuit breaker.
+- The framework gained `PlanOptions.request` and a provider `headers` option for this.

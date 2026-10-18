@@ -25,6 +25,11 @@ export interface UseActionOptions<S extends z.ZodObject> {
   input?: S;
   /** Register only while true (e.g. when a button would be enabled). */
   enabled?: boolean;
+  /**
+   * Phrases that run this action instantly, with no model call ("dark mode", "open filters").
+   * Only for actions that need no input.
+   */
+  phrases?: string[];
 }
 
 /**
@@ -42,13 +47,15 @@ export function useAction<S extends z.ZodObject = z.ZodObject>(
 ) {
   const registry = useRegistry();
   const run = useLatest(handler);
-  const { input, enabled = true } = options;
+  const { input, enabled = true, phrases } = options;
+  const phraseKey = (phrases ?? []).join('\u0000');
   const inputSchema = useMemo(() => jsonSchemaOf(input), [input]);
   useEffect(() => {
     if (!enabled) return;
     return registry.register(Symbol(id), {
       id,
       kind: 'ui',
+      phrases: phraseKey ? phraseKey.split('\u0000') : undefined,
       describe,
       inputSchema,
       run: (args, ctx) => {
@@ -63,7 +70,7 @@ export function useAction<S extends z.ZodObject = z.ZodObject>(
         return run(value as z.output<S>, ctx);
       },
     });
-  }, [registry, id, describe, inputSchema, input, enabled]);
+  }, [registry, id, describe, inputSchema, input, enabled, phraseKey]);
 }
 
 /**

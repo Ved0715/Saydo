@@ -184,11 +184,25 @@ export function AssistantUI({ placeholder }: { placeholder?: string }) {
                   </button>
                 </div>
               )}
-              {nav.items.map((item) => (
+              {nav.items.map((item, index) => (
                 <div key={item.id} className={`saydo-item saydo-${item.role}`} data-status={item.status}>
                   {item.text}
+                  {item.options && index === nav.items.length - 1 && !nav.busy && (
+                    <div className="saydo-choices" role="group" aria-label={item.text}>
+                      {item.options.map((option) => (
+                        <button type="button" key={option} onClick={() => void nav.send(option)}>
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
+              {nav.progress && (
+                <p className="saydo-progress" role="status">
+                  {nav.progress}
+                </p>
+              )}
               {nav.streaming && (
                 // The reply as it is written; screen readers get the final text instead of every token.
                 <div className="saydo-item saydo-assistant saydo-streaming" aria-hidden="true">

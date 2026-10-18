@@ -1,6 +1,6 @@
 // Placeholder for the generated registry. withSaydo() (Next.js) and the saydo()
 // Vite plugin replace this module at build time with your routes and actions.
-import type { SaydoConfig } from './core/handler';
+import type { SaydoConfig } from './core/config';
 import type { Capability } from './core/capability';
 import type { RouteRecord } from './core/route';
 

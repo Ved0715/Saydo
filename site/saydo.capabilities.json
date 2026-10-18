@@ -1,0 +1,10 @@
+{
+  "lockfileVersion": 1,
+  "capabilities": {
+    "board.add": {"risk":"write","kind":"client","version":1,"expose":["assistant"]},
+    "board.remove": {"risk":"destructive","kind":"client","version":1,"expose":["assistant"]}
+  },
+  "routes": [
+    "/"
+  ]
+}

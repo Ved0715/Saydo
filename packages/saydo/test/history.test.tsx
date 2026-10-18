@@ -16,15 +16,7 @@ function app(threads = true) {
   const { routes, capabilities } = makeApp(db);
   const handler = createHandler(
     { routes, capabilities },
-    {
-      secret: SECRET,
-      planner: mockPlanner({ script: [say('First answer.'), say('Second answer.')] }),
-      getUser: () => alice,
-      rateLimit: false,
-      lockfile: false,
-      store: 'memory',
-      threads: threads ? memoryThreadStore() : undefined,
-    },
+    { getUser: () => alice, store: 'memory', advanced: { secret: SECRET, planner: mockPlanner({ script: [say('First answer.'), say('Second answer.')] }), lockfile: false }, limits: { perMinute: false }, conversations: { store: threads ? memoryThreadStore() : undefined } },
   );
   vi.stubGlobal('fetch', async (_url: unknown, init?: RequestInit) =>
     handler(new Request('https://app.test/api/saydo', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://app.test' }, body: init?.body })),

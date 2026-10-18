@@ -254,7 +254,7 @@ describe('handler protections', () => {
   const turn = { type: 'message', text: 'hi', client: { route: '/', tabId: 't', mounted: [], uiActions: [] } };
 
   it('accepts JSON only (cross-site form posts cannot send it)', async () => {
-    const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { secret: SECRET, lockfile: false, planner: mockPlanner() });
+    const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { advanced: { secret: SECRET, lockfile: false, planner: mockPlanner() } });
     expect((await post(handler, 'type=manifest', { 'content-type': 'application/x-www-form-urlencoded' })).status).toBe(415);
     expect((await post(handler, { type: 'manifest' })).status).toBe(200);
   });
@@ -263,7 +263,7 @@ describe('handler protections', () => {
     let calls = 0;
     const handler = createHandler(
       { routes: [{ pattern: '/' }], capabilities: [] },
-      { secret: SECRET, lockfile: false, rateLimit: false, planner: { name: 'down', plan: async () => { calls++; throw new Error('down'); } } },
+      { advanced: { secret: SECRET, lockfile: false, planner: { name: 'down', plan: async () => { calls++; throw new Error('down'); } } }, limits: { perMinute: false } },
     );
     const original = console.error;
     console.error = () => {};
@@ -281,7 +281,7 @@ describe('handler protections', () => {
   it('enforces per-user daily budgets', async () => {
     const handler = createHandler(
       { routes: [{ pattern: '/' }], capabilities: [] },
-      { secret: SECRET, lockfile: false, rateLimit: false, budget: { requestsPerDay: 2 }, planner: mockPlanner({ script: [say('ok')] }) },
+      { advanced: { secret: SECRET, lockfile: false, planner: mockPlanner({ script: [say('ok')] }) }, limits: { perMinute: false, perDay: { requests: 2 } } },
     );
     // A browser keeps the visitor cookie it was given.
     const first = await post(handler, turn);
@@ -297,7 +297,7 @@ describe('handler protections', () => {
   it('gives each signed-out visitor an isolated identity, and limits cookie-less clients per IP', async () => {
     const handler = createHandler(
       { routes: [{ pattern: '/' }], capabilities: [] },
-      { secret: SECRET, lockfile: false, rateLimit: false, budget: { requestsPerDay: 2 }, planner: mockPlanner({ script: [say('ok')] }) },
+      { advanced: { secret: SECRET, lockfile: false, planner: mockPlanner({ script: [say('ok')] }) }, limits: { perMinute: false, perDay: { requests: 2 } } },
     );
     const a = await post(handler, turn);
     const b = await post(handler, turn);
@@ -316,7 +316,7 @@ describe('handler protections', () => {
   });
 
   it('caps the body by bytes read, not by the content-length header', async () => {
-    const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { secret: SECRET, lockfile: false, planner: mockPlanner() });
+    const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { advanced: { secret: SECRET, lockfile: false, planner: mockPlanner() } });
     const big = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'message', text: 'x'.repeat(300_000) })));

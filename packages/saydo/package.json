@@ -168,5 +168,18 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "author": "Vedant",
+  "homepage": "https://github.com/Ved0715/Saydo#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ved0715/Saydo.git",
+    "directory": "packages/saydo"
+  },
+  "bugs": {
+    "url": "https://github.com/Ved0715/Saydo/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

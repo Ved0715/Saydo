@@ -1,4 +1,5 @@
-import { createHandler, HANDLER_LIMITS, HANDLER_OPTIONS, json, RUNTIME_INIT, type Registry, type Runtime, type SaydoOptions } from './handler';
+import { createHandler, HANDLER_LIMITS, HANDLER_OPTIONS, json, RUNTIME_INIT, type HandlerOptions, type Registry, type Runtime } from './handler';
+import type { SaydoConfig } from './config';
 import { PROTOCOL_VERSION } from './engine';
 import type { InvokeResult } from './protocol';
 import type { TurnError } from './protocol';
@@ -64,10 +65,10 @@ function toolResult(result: InvokeResult, origin: string) {
  * Every call runs under the same policy as the in-app assistant; gated calls
  * become a link the user approves in your app (`external.approvals: 'delegated'`).
  */
-export function createMcpHandler(registry: Registry, overrides: SaydoOptions = {}) {
+export function createMcpHandler(registry: Registry, overrides: SaydoConfig = {}) {
   const inner = createHandler(registry, overrides) as ReturnType<typeof createHandler> & Record<symbol, unknown>;
   const init = inner[RUNTIME_INIT] as () => Promise<Runtime | { error: Omit<TurnError, 'ok'> }>;
-  const options = inner[HANDLER_OPTIONS] as SaydoOptions;
+  const options = inner[HANDLER_OPTIONS] as HandlerOptions;
   const limits = inner[HANDLER_LIMITS] as { limited: (key: string) => Promise<boolean> };
 
   async function respond(message: JsonRpcMessage, user: SaydoUser, runtime: Runtime, request: Request) {

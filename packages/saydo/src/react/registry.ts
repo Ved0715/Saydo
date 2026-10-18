@@ -15,8 +15,19 @@ export interface RegisteredAction {
   kind: 'ui' | 'capability';
   describe?: string;
   inputSchema?: Record<string, unknown>;
+  /** Exact phrases that run this action instantly in the browser, with no model call. */
+  phrases?: string[];
   run: (args: unknown, ctx: ActionContext) => unknown;
 }
+
+export const normalizePhrase = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^please /, '')
+    .replace(/ please$/, '');
 
 const isDev = () => typeof process === 'undefined' || process.env?.NODE_ENV !== 'production';
 
@@ -53,6 +64,17 @@ export class Registry {
       if (current && !current.size) this.entries.delete(action.id);
       this.emit();
     };
+  }
+
+  /** A mounted UI action whose phrases match this text exactly (case and punctuation ignored). */
+  byPhrase(text: string): RegisteredAction | undefined {
+    const normal = normalizePhrase(text);
+    if (!normal) return undefined;
+    for (const id of this.ids()) {
+      const action = this.get(id);
+      if (action?.kind === 'ui' && action.phrases?.some((p) => normalizePhrase(p) === normal)) return action;
+    }
+    return undefined;
   }
 
   get(id: string): RegisteredAction | undefined {

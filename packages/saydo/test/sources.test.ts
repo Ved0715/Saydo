@@ -266,7 +266,7 @@ describe('handler with tools', () => {
     const echo = tool({ description: 'Echo text', inputSchema: z.object({ text: z.string() }), execute: async ({ text }) => text });
     const handler = createHandler(
       { routes: [{ pattern: '/' }], capabilities: [] },
-      { secret: SECRET, lockfile: false, rateLimit: false, tools: [aiTools({ echo }, { risk: 'read' })], planner: mockPlanner({ script: [call('echo', { text: 'hi' }), say('hi')] }) },
+      { tools: [aiTools({ echo }, { risk: 'read' })], advanced: { secret: SECRET, lockfile: false, planner: mockPlanner({ script: [call('echo', { text: 'hi' }), say('hi')] }) }, limits: { perMinute: false } },
     );
     const post = (body: unknown) =>
       handler(new Request('http://app.test/api/saydo', { method: 'POST', headers: { 'content-type': 'application/json', host: 'app.test' }, body: JSON.stringify(body) }));

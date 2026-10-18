@@ -145,7 +145,7 @@ async function authenticator() {
 
 async function registerThroughHandler(passkeys: PasskeyStore, user: { id: string }, allow = true) {
   const stepUp = webauthn({ rpId: RP_ID, origins: ORIGIN, passkeys, allowRegistration: () => allow });
-  const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { secret: SECRET, lockfile: false, rateLimit: false, stepUp, getUser: () => user, planner: { name: 'x', plan: async () => ({ calls: [] }) } });
+  const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { getUser: () => user, advanced: { secret: SECRET, lockfile: false, planner: { name: 'x', plan: async () => ({ calls: [] }) } }, limits: { perMinute: false }, act: { stepUp } });
   const post = async (body: unknown) =>
     (await handler(new Request('http://app.test/api/saydo', { method: 'POST', headers: { 'content-type': 'application/json', host: 'app.test' }, body: JSON.stringify(body) }))).json();
   const device = await authenticator();

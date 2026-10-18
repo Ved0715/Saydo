@@ -104,6 +104,26 @@ describe('saydo/dom', () => {
     expect(events).toEqual([{ keys: undefined }]);
   });
 
+  it('answers declared phrases and "undo" instantly, without calling the server', async () => {
+    const { engine, db } = setup([call('posts_archive', { post: 'post#1' }), { text: 'Archived.', calls: [] }]);
+    const fetchImpl = serverFetch(engine);
+    client = createSaydo({ fetch: fetchImpl, router: { push: () => {} }, ui: false });
+    await new Promise((r) => setTimeout(r, 10));
+    const toggled = vi.fn(() => ({ message: 'Dark mode on.' }));
+    client.action('theme.dark', 'Switch to dark mode', toggled, { phrases: ['dark mode', 'turn on dark mode'] });
+    const before = (fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await client.ask('Dark mode, please!');
+    expect(toggled).toHaveBeenCalledTimes(1);
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(before);
+    expect(client.getSnapshot().items.at(-1)).toMatchObject({ role: 'assistant', text: 'Dark mode on.' });
+
+    client.navigated('/posts/p2');
+    await client.ask('archive this post');
+    expect(db.posts.get('p2')!.archived).toBe(true);
+    await client.ask('undo that');
+    expect(db.posts.get('p2')!.archived).toBe(false);
+  });
+
   it('destroy removes the UI and listeners', async () => {
     const { engine } = setup();
     client = createSaydo({ fetch: serverFetch(engine), router: { push: () => {} } });
