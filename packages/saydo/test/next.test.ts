@@ -104,9 +104,14 @@ describe('createHandler', () => {
     try {
       const noSecret = await (await createHandler(registry, { planner: mockPlanner(), lockfile: false })(post({ type: 'manifest' }))).json();
       expect(noSecret).toMatchObject({ ok: false, fix: expect.stringContaining('SAYDO_SECRET') });
-      const noStore = await (await createHandler(registry, { secret: SECRET, planner: mockPlanner(), lockfile: false })(post({ type: 'manifest' }))).json();
+      const noUser = await (await createHandler(registry, { secret: SECRET, planner: mockPlanner(), store: 'memory', lockfile: false })(post({ type: 'manifest' }))).json();
+      expect(noUser).toMatchObject({ ok: false, code: 'no_user', fix: expect.stringContaining('anonymous: true') });
+      const optedIn = await createHandler(registry, { secret: SECRET, planner: mockPlanner(), store: 'memory', lockfile: false, anonymous: true })(post({ type: 'manifest' }));
+      expect(optedIn.status).toBe(200);
+      const getUser = () => ({ id: 'u1' });
+      const noStore = await (await createHandler(registry, { secret: SECRET, planner: mockPlanner(), lockfile: false, getUser })(post({ type: 'manifest' }))).json();
       expect(noStore).toMatchObject({ ok: false, fix: expect.stringContaining('store') });
-      const noModel = await (await createHandler(registry, { secret: SECRET, store: 'memory', lockfile: false })(post({ type: 'manifest' }))).json();
+      const noModel = await (await createHandler(registry, { secret: SECRET, store: 'memory', lockfile: false, getUser })(post({ type: 'manifest' }))).json();
       expect(noModel).toMatchObject({ ok: false, fix: expect.stringContaining('model') });
     } finally {
       env.NODE_ENV = previous;

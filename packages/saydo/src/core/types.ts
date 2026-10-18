@@ -51,6 +51,8 @@ export interface Receipt {
   retryable?: boolean;
   route?: string;
   undoable?: boolean;
+  /** The result contains third-party or user-written text; models must treat it as data only. */
+  untrusted?: boolean;
 }
 
 /** Declarative client effects a server capability can return. */

@@ -3,6 +3,8 @@ import type { Risk, Tier } from './types';
 export interface PolicyOptions {
   /** Destructive calls touching more records than this need step-up. */
   bulkThreshold?: number;
+  /** Records affected, when known better than by counting list inputs (a capability's `blastRadius`). */
+  count?: number;
 }
 
 /** Largest array length among the top-level input fields (a proxy for blast radius). */
@@ -29,7 +31,7 @@ export function tierFor(risk: Risk, args: unknown, options: PolicyOptions = {}):
     case 'write':
       return 2;
     case 'destructive':
-      return bulkCount(args) > threshold ? 3 : 2;
+      return (options.count ?? bulkCount(args)) > threshold ? 3 : 2;
     case 'never':
       return 4;
   }

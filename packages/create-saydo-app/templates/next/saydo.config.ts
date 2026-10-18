@@ -28,7 +28,7 @@ export default defineConfig({
   // Unannotated clicks ask first; tighten or loosen with `see` / `act`.
   see: { page: true },
   act: { elements: 'all', defaultRisk: 'write' },
-  tools: [aiTools({ convertCurrency }, { risk: 'read' })],
+  tools: [aiTools({ convertCurrency }, { risk: 'read', trusted: true })], // trusted: our own code, not a third party
   // Single-process demo. Use a durable store (Postgres, Redis or Firestore) for multiple instances.
   store: 'memory',
   // Conversation history and resume (the palette shows "History"). For production:

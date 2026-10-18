@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 type FetchHandler = (request: Request) => Response | Promise<Response>;
 
+const trustedClientIps = () =>
+  ((globalThis as Record<symbol, WeakMap<Request, string>>)[Symbol.for('saydo.client-ip')] ??= new WeakMap<Request, string>());
+
 /** Adapt a fetch-style handler (Request → Response) to Node's http/Express/connect. */
 export function toNodeHandler(handler: FetchHandler) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -22,10 +25,21 @@ export function toNodeHandler(handler: FetchHandler) {
       headers,
       body: method === 'GET' || method === 'HEAD' ? undefined : Buffer.concat(chunks),
     });
+    // The socket address is the only client IP a raw Node server can trust. It travels beside the
+    // Request (never as a header a client could forge).
+    if (req.socket?.remoteAddress) trustedClientIps().set(request, req.socket.remoteAddress);
     const response = await handler(request);
     res.statusCode = response.status;
-    response.headers.forEach((value, key) => res.setHeader(key, value));
-    res.end(Buffer.from(await response.arrayBuffer()));
+    response.headers.forEach((value, key) => {
+      if (key !== 'set-cookie') res.setHeader(key, value);
+    });
+    const cookies = response.headers.getSetCookie?.() ?? [];
+    if (cookies.length) res.setHeader('set-cookie', cookies);
+    if (!response.body) return void res.end();
+    // Stream (streamed assistant replies arrive as they are written).
+    res.flushHeaders?.();
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) res.write(chunk);
+    res.end();
   };
 }
 
@@ -41,9 +55,11 @@ const TYPES: Record<string, string> = {
 };
 
 /** Minimal static server for a built SPA, with index.html fallback for client routes. */
-export function serveStatic(dir: string | URL) {
+export function serveStatic(dir: string | URL, options: { agents?: boolean; permissionsPolicy?: boolean } = {}) {
   const root = path.resolve(typeof dir === 'string' ? dir : fileURLToPath(dir));
   return (req: IncomingMessage, res: ServerResponse) => {
+    // WebMCP's "tools" feature: off unless the app uses browser agents (then own origin only).
+    if (options.permissionsPolicy !== false) res.setHeader('Permissions-Policy', options.agents ? 'tools=(self)' : 'tools=()');
     const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
     let file = path.join(root, pathname);
     if (!file.startsWith(root)) {

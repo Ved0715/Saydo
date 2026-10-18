@@ -95,6 +95,15 @@ export function threadStoreContract(name: string, makeStore: () => Promise<Threa
       ]);
     });
 
+    it('orders the transcript by the engine’s sequence, not by clock time', async () => {
+      const store = await makeStore();
+      await store.save(thread('t4'), null);
+      // Two instances with skewed clocks: the later entries carry an earlier timestamp.
+      await store.append('t4', 'u1', [{ seq: 1, at: 5000, role: 'user', text: 'first' }], 10_000_000);
+      await store.append('t4', 'u1', [{ seq: 2, at: 4000, role: 'assistant', text: 'second' }, { seq: 3, at: 4000, role: 'user', text: 'third' }], 10_000_000);
+      expect((await store.transcript('t4')).map((e) => e.text)).toEqual(['first', 'second', 'third']);
+    });
+
     it('lists a user’s conversations, newest first', async () => {
       const store = await makeStore();
       await store.save(thread('a', { updatedAt: 1 }), null);

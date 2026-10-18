@@ -92,9 +92,10 @@ describe('stored conversations', () => {
   it('rejects a tampered pointer', async () => {
     const { engine } = withThreads([say('Hi.')]);
     const first = ok(await engine.handle(message('hello'), alice));
-    const [body, sig] = first.state.split('.');
-    const forged = `${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body!, 'base64url').toString()), userId: 'u2' })).toString('base64url')}.${sig}`;
-    expect((await engine.handle(message('x', forged), bob)).ok).toBe(false);
+    const bytes = Buffer.from(first.state.slice(3), 'base64url');
+    bytes[bytes.length - 1]! ^= 1;
+    expect((await engine.handle(message('x', `v2.${bytes.toString('base64url')}`), alice)).ok).toBe(false);
+    expect((await engine.handle(message('x', first.state), bob)).ok).toBe(false);
   });
 
   it('is served by the handler: list, open and delete', async () => {

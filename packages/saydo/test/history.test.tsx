@@ -50,6 +50,9 @@ describe('conversation history UI', () => {
     expect(await screen.findByText('First answer.')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    // Even if the reply was still streaming, nothing from it lands in the new conversation.
+    expect(screen.queryByText('First answer.')).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText('First answer.')).toBeNull();
 
     fireEvent.click(await screen.findByRole('button', { name: 'History' }));

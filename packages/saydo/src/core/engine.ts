@@ -155,8 +155,11 @@ export interface EngineOptions {
   secret: string;
   grants?: GrantStore;
   appName?: string;
-  /** Extra instructions (brand voice, domain hints). Appended; never replaces the safety rules. */
-  instructions?: string;
+  /**
+   * Extra instructions (brand voice, domain hints). Appended; never replaces the safety rules.
+   * A function picks them per request, e.g. by plan, tenant or page.
+   */
+  instructions?: string | ((context: { user: SaydoUser; route: string }) => string | undefined);
   /** Planner steps per user turn. Default 6. */
   maxSteps?: number;
   confirmTtlMs?: number;
@@ -230,6 +233,12 @@ export interface EngineOptions {
    * what was sent to the model provider (already redacted), so store them like your logs.
    */
   record?: (turn: TurnRecord) => void;
+  /**
+   * When a request has read untrusted content (marked page regions, or results of imported tools
+   * and `untrustedResults` actions), reversible steps in the rest of that request need the user's
+   * click instead of running with Undo. Default 'confirm'; 'off' trusts undo alone.
+   */
+  taint?: 'confirm' | 'off';
 }
 
 export interface Engine {
@@ -255,7 +264,8 @@ export interface Engine {
     open(user: SaydoUser, threadId: string, client: Partial<ClientContext>): Promise<{ ok: true; state: string; threadId: string; items: TranscriptEntry[] } | TurnError>;
     remove(user: SaydoUser, threadId: string): Promise<{ ok: true } | TurnError>;
   };
-  handle(request: TurnRequest, user: SaydoUser, extras?: { request?: Request }): Promise<TurnResult>;
+  /** `onText` streams the assistant's reply as the model writes it (display only; the result is authoritative). */
+  handle(request: TurnRequest, user: SaydoUser, extras?: { request?: Request; onText?: (delta: string) => void }): Promise<TurnResult>;
   /** What the model would see for this user on this page (dev tooling). */
   inspect(
     user: SaydoUser,
@@ -303,6 +313,10 @@ interface ThreadState {
   invalid?: Record<string, number>;
   /** Confirmations requested in this turn; past the budget, approvals need step-up. */
   gated?: number;
+  /** This request has read untrusted content: reversible steps need a click (taint escalation). */
+  tainted?: boolean;
+  /** Next transcript sequence number (stored conversations), monotonic per conversation. */
+  entrySeq?: number;
   /** Stored conversations: version for compare-and-set, title and creation time. */
   rev?: number;
   title?: string;
@@ -341,6 +355,10 @@ interface RequestScope {
   usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number };
   /** The user's message this request, for the stored transcript. */
   userText?: string;
+  /** Streaming: receives reply text as it is written. */
+  onText?: (delta: string) => void;
+  /** Some reply text was already streamed in this request (steps are separated by a line break). */
+  streamed?: boolean;
   /** Model steps of this request, when `record` is set. */
   recording?: { input: PlannerInput; output: PlannerOutput }[];
 }
@@ -893,7 +911,13 @@ export function createEngine(options: EngineOptions): Engine {
       '- Only help with this app and what the user can do in it; politely decline unrelated tasks.',
       '- Reply in one or two short sentences.',
     ];
-    if (options.instructions) rules.push(options.instructions);
+    let extra: string | undefined;
+    try {
+      extra = typeof options.instructions === 'function' ? options.instructions({ user: scope.user, route: scope.client.route }) : options.instructions;
+    } catch (error) {
+      reportError(error, {});
+    }
+    if (extra) rules.push(String(extra).slice(0, 8000));
     const lines: string[] = [];
     lines.push(`Current page: ${page.route}${page.title ? ` (${page.title})` : ''}.`);
     if (page.entities.length) {
@@ -964,6 +988,11 @@ export function createEngine(options: EngineOptions): Engine {
   ): Promise<{ receipt: Receipt; effects: Effect[] }> {
     const span = startSpan('saydo.execute', { 'saydo.capability': cap.id, 'saydo.mode': mode, 'saydo.risk': cap.resolvedRisk });
     const outcome = await executeInner(scope, cap, args, invocationId, mode);
+    // Third-party or user-written results: framed as untrusted for the model, and the request is tainted.
+    if (cap.untrustedResults && outcome.receipt.status === 'ok' && outcome.receipt.result !== undefined) {
+      outcome.receipt.untrusted = true;
+      scope.state.tainted = true;
+    }
     // UI sync: after any successful write the page re-fetches its server data, even if the handler forgot to ask.
     if (mode === 'run' && outcome.receipt.status === 'ok' && cap.resolvedRisk !== 'read' && !outcome.effects.some((e) => e.type === 'refresh')) {
       outcome.effects.push({ type: 'refresh' });
@@ -1030,11 +1059,26 @@ export function createEngine(options: EngineOptions): Engine {
     scope.events.push({ type: 'action', capability: call.name, title, status: result.status, message: result.message });
   }
 
-  function buildView(cap: Capability, raw: Record<string, unknown>, resolved: Record<string, unknown>, labels: Record<string, string[]>, tier: Tier): ConfirmView {
-    const typed = tier === 3 ? (bulkCount(raw) > 1 ? String(bulkCount(raw)) : 'confirm') : undefined;
+  function buildView(
+    cap: Capability,
+    raw: Record<string, unknown>,
+    resolved: Record<string, unknown>,
+    labels: Record<string, string[]>,
+    tier: Tier,
+    extra: { radius?: number; tainted?: boolean } = {},
+  ): ConfirmView {
+    const count = extra.radius ?? bulkCount(raw);
+    const typed = tier === 3 ? (count > 1 && count < Number.MAX_SAFE_INTEGER ? String(count) : 'confirm') : undefined;
+    const notes: ConfirmView['fields'] = [];
+    if (extra.radius !== undefined) {
+      notes.push({ label: 'Affects', value: extra.radius >= Number.MAX_SAFE_INTEGER ? 'An unknown number of records' : `${extra.radius} record${extra.radius === 1 ? '' : 's'}`, untrusted: false });
+    }
+    if (extra.tainted) {
+      notes.push({ label: 'Why you are asked', value: 'The assistant read content written by others in this request, so it asks before acting.', untrusted: false });
+    }
     if (cap.confirm?.view) {
       const view = cap.confirm.view(resolved as never);
-      return { ...view, requireTyped: view.requireTyped ?? typed };
+      return { ...view, fields: [...view.fields, ...notes], requireTyped: view.requireTyped ?? typed };
     }
     const fields = Object.entries(raw).map(([key, value]) => ({
       label: key,
@@ -1043,6 +1087,7 @@ export function createEngine(options: EngineOptions): Engine {
     }));
     // Workflows: the user approves every step, so the card lists them (developer-authored, trusted).
     if (cap.steps?.length) fields.push({ label: 'Steps', value: cap.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'), untrusted: false });
+    fields.push(...notes.map((note) => ({ ...note, untrusted: note.untrusted ?? false })));
     const danger = cap.resolvedRisk === 'destructive';
     return {
       title: cap.title ?? cap.describe,
@@ -1367,18 +1412,44 @@ export function createEngine(options: EngineOptions): Engine {
     scope: RequestScope,
     call: PlannerCall,
     cap: Capability,
-  ): Promise<{ receipt: Receipt } | { raw: Record<string, unknown>; refs: Exclude<Awaited<ReturnType<typeof resolveRefs>>, Receipt>; tier: Tier }> {
+  ): Promise<
+    | { receipt: Receipt }
+    | { raw: Record<string, unknown>; refs: Exclude<Awaited<ReturnType<typeof resolveRefs>>, Receipt>; tier: Tier; radius?: number; tainted?: boolean }
+  > {
     const parsed = await validateInput(cap, call.args ?? {});
     if (!parsed.ok) return { receipt: receipt('invalid_args', { message: parsed.message }) };
     const refs = await resolveRefs(scope, cap, parsed.data);
     if (isReceipt(refs)) return { receipt: refs };
-    let tier = tierFor(cap.resolvedRisk, parsed.data, { bulkThreshold: options.bulkThreshold });
+    const radius = await blastRadiusOf(cap, refs.resolved, scope.user);
+    let tier = tierFor(cap.resolvedRisk, parsed.data, { bulkThreshold: options.bulkThreshold, count: radius });
+    // Taint: after reading untrusted content, nothing runs on the model's word alone.
+    const tainted = tier === 1 && options.taint !== 'off' && isTainted(scope);
+    if (tainted) tier = 2;
     const policy = await applyPolicy(scope.user, cap, refs.resolved, 'assistant', tier);
     if ('receipt' in policy) return policy;
     tier = policy.tier;
     // Step-up: per-action opt-in, or past the per-request confirmation budget (no confirm fatigue).
     if (tier === 2 && (cap.stepUp || (scope.state.gated ?? 0) >= confirmBudget)) tier = 3;
-    return { raw: parsed.data, refs, tier };
+    return { raw: parsed.data, refs, tier, radius, tainted };
+  }
+
+  /** Records affected: the capability's own count, or undefined to count list inputs. Errors fail closed. */
+  async function blastRadiusOf(cap: Capability, input: unknown, user: SaydoUser): Promise<number | undefined> {
+    if (!cap.blastRadius) return undefined;
+    try {
+      const count = Number(await cap.blastRadius(input as never, { user }));
+      return Number.isFinite(count) && count >= 0 ? Math.ceil(count) : Number.MAX_SAFE_INTEGER;
+    } catch (error) {
+      reportError(error, { capability: cap.id });
+      return Number.MAX_SAFE_INTEGER;
+    }
+  }
+
+  /** The request has read text other people wrote: marked page regions or untrusted results. */
+  function isTainted(scope: RequestScope): boolean {
+    if (scope.state.tainted) return true;
+    const page = scope.client.page;
+    return Boolean(page && (page.text.includes('⟦') || page.elements.some((e) => e.context?.includes('⟦'))));
   }
 
   /** The developer's central policy: deny, or raise the tier. Errors fail closed. */
@@ -1418,7 +1489,7 @@ export function createEngine(options: EngineOptions): Engine {
       if ('receipt' in prep || prep.tier < 2 || prep.tier === 4) break;
       pending.queue.shift();
       scope.state.seen.push(signature);
-      const view = buildView(target.cap, prep.raw, prep.refs.resolved, prep.refs.labels, prep.tier);
+      const view = buildView(target.cap, prep.raw, prep.refs.resolved, prep.refs.labels, prep.tier, prep);
       const grant = await createConfirmGrant(scope, target.cap, next, prep.refs.resolved, view, prep.tier, {
         input: prep.raw,
         versions: prep.refs.versions,
@@ -1549,7 +1620,7 @@ export function createEngine(options: EngineOptions): Engine {
     }
 
     if (tier >= 2) {
-      return stage(scope, cap, call, refs.resolved, buildView(cap, raw, refs.resolved, refs.labels, tier), tier, {
+      return stage(scope, cap, call, refs.resolved, buildView(cap, raw, refs.resolved, refs.labels, tier, prep), tier, {
         input: raw,
         versions: refs.versions,
       });
@@ -1666,8 +1737,18 @@ export function createEngine(options: EngineOptions): Engine {
           hints: {
             routes: permitted.map((r) => ({ pattern: r.pattern, title: routeTitle(r), aliases: r.nav?.aliases })),
           },
+          context: { user: scope.user, route: scope.client.route },
         };
-        output = await options.planner.plan(plannerInput);
+        const onText = scope.onText
+          ? (delta: string) => {
+              if (!delta) return;
+              if (scope.streamed && !stepStreamed) scope.onText!('\n');
+              stepStreamed = scope.streamed = true;
+              scope.onText!(delta);
+            }
+          : undefined;
+        let stepStreamed = false;
+        output = await options.planner.plan(plannerInput, { onText });
         if (options.record) (scope.recording ??= []).push({ input: plannerInput, output: structuredClone(output) });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1785,6 +1866,9 @@ export function createEngine(options: EngineOptions): Engine {
       else if (event.capability === NAV_TOOL && event.status === 'ok') continue;
       else entries.push({ at, role: 'action', text: (event.message ?? event.title).slice(0, 500), status: event.status, capability: event.capability });
     }
+    // Numbered from the conversation's own counter, which is saved with compare-and-set, so the
+    // order holds across server instances and clocks.
+    for (const entry of entries) entry.seq = scope.state.entrySeq = (scope.state.entrySeq ?? 0) + 1;
     return entries;
   }
 
@@ -1792,6 +1876,7 @@ export function createEngine(options: EngineOptions): Engine {
   async function persistThread(scope: RequestScope): Promise<string> {
     const state = scope.state;
     const expected = state.rev ?? null;
+    const entries = transcriptOf(scope); // before saving: it advances the conversation's entry counter
     state.createdAt ??= now();
     state.title ??= (state.history.find((h) => h.role === 'user') as { text?: string } | undefined)?.text?.slice(0, 80) ?? 'Conversation';
     state.rev = (expected ?? 0) + 1;
@@ -1809,7 +1894,7 @@ export function createEngine(options: EngineOptions): Engine {
     try {
       // A concurrent request on the same conversation won: keep its working state, still keep this transcript.
       if (!(await threads!.save(record, expected))) state.rev = expected ?? undefined;
-      await threads!.append(state.threadId, scope.user.id, transcriptOf(scope), expiresAt);
+      await threads!.append(state.threadId, scope.user.id, entries, expiresAt);
     } catch (error) {
       // Store outage: never lose the response of actions that already ran. This turn falls back to
       // signed in-browser state; the next successful save brings the conversation back to the store.
@@ -2274,7 +2359,8 @@ export function createEngine(options: EngineOptions): Engine {
     if (!parsed.ok) return { ok: true, status: 'invalid_args', receipt: receipt('invalid_args', { message: parsed.message }) };
     const refs = await resolveRefs(scope, cap, idsToHandles(scope, cap, parsed.data));
     if (isReceipt(refs)) return { ok: true, status: refs.status, receipt: refs };
-    const policy = await applyPolicy(user, cap, refs.resolved, req.origin, tierFor(cap.resolvedRisk, parsed.data, { bulkThreshold: options.bulkThreshold }));
+    const radius = await blastRadiusOf(cap, refs.resolved, user);
+    const policy = await applyPolicy(user, cap, refs.resolved, req.origin, tierFor(cap.resolvedRisk, parsed.data, { bulkThreshold: options.bulkThreshold, count: radius }));
     if ('receipt' in policy) return { ok: true, status: 'forbidden', receipt: policy.receipt };
     const tier = policy.tier;
     const base = { userId: user.id, threadId: scope.state.threadId, capability: cap.id, capabilityVersion: cap.version ?? 1, tier, origin: req.origin };
@@ -2311,7 +2397,7 @@ export function createEngine(options: EngineOptions): Engine {
         'approval_required',
       );
     }
-    const view = buildView(cap, parsed.data, refs.resolved, refs.labels, tier);
+    const view = buildView(cap, parsed.data, refs.resolved, refs.labels, tier, { radius });
     const grant = await createConfirmGrant(scope, cap, { id: callId, name: toolNameFor(cap.id), args: req.args }, refs.resolved, view, tier, {
       input: parsed.data,
       versions: refs.versions,
@@ -2464,7 +2550,7 @@ export function createEngine(options: EngineOptions): Engine {
     },
   };
 
-  async function processRequest(request: TurnRequest, user: SaydoUser, extras?: { request?: Request }): Promise<TurnResult> {
+  async function processRequest(request: TurnRequest, user: SaydoUser, extras?: { request?: Request; onText?: (delta: string) => void }): Promise<TurnResult> {
     {
       const client = normalizeClient(request.client, mask);
       if (client.manifestHash && client.manifestHash !== manifestHash) {
@@ -2482,7 +2568,7 @@ export function createEngine(options: EngineOptions): Engine {
 
       const state = await loadState(request.state, user, client);
       if ('ok' in state) return state;
-      const scope: RequestScope = { user, client, state, events: [], effects: [], stop: false, request: extras?.request };
+      const scope: RequestScope = { user, client, state, events: [], effects: [], stop: false, request: extras?.request, onText: extras?.onText };
 
       try {
         if (request.type === 'message') {
@@ -2493,6 +2579,7 @@ export function createEngine(options: EngineOptions): Engine {
           state.steps = 0;
           state.invalid = undefined;
           state.gated = undefined;
+          state.tainted = undefined;
           state.history.push({ role: 'user', text });
           scope.userText = text;
           return await run(scope);

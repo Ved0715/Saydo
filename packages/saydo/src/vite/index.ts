@@ -10,6 +10,12 @@ export interface SaydoViteOptions {
   endpoint?: string;
   /** Folders scanned for capability modules. Default: capabilities/, src/capabilities/. */
   capabilityDirs?: string[];
+  /**
+   * In-page browser agents (WebMCP). By default the dev server sends
+   * `Permissions-Policy: tools=()` so no script on the page can register browser-agent tools;
+   * `agents: true` sends `tools=(self)`. Pass the same option to `serveStatic` in production.
+   */
+  agents?: boolean;
 }
 
 const REGISTRY_ID = 'saydo/registry';
@@ -110,6 +116,10 @@ export function saydo(options: SaydoViteOptions = {}): Plugin {
       server.watcher.on('add', onFileSetChange);
       server.watcher.on('unlink', onFileSetChange);
 
+      server.middlewares.use((_req, res, next) => {
+        res.setHeader('Permissions-Policy', options.agents ? 'tools=(self)' : 'tools=()');
+        next();
+      });
       server.middlewares.use(async (req, res, next) => {
         if (req.method !== 'POST' || req.url?.split('?')[0] !== endpoint) return next();
         try {

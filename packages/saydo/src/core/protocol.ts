@@ -68,6 +68,8 @@ export interface ThreadSummary {
 
 /** One line of a stored conversation: what the user saw. */
 export interface TranscriptEntry {
+  /** Order within the conversation, assigned by the engine (monotonic across instances). */
+  seq?: number;
   at: number;
   role: 'user' | 'assistant' | 'action';
   text: string;

@@ -9,4 +9,6 @@ export default defineConfig({
   model: hasKey ? anthropic('claude-sonnet-5-5') : undefined,
   planner: hasKey ? undefined : mockPlanner(),
   store: 'memory',
+  // No sign-in in this demo: each browser gets its own isolated anonymous identity.
+  anonymous: true,
 });

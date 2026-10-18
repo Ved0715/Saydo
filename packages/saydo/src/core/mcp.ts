@@ -68,7 +68,7 @@ export function createMcpHandler(registry: Registry, overrides: SaydoOptions = {
   const inner = createHandler(registry, overrides) as ReturnType<typeof createHandler> & Record<symbol, unknown>;
   const init = inner[RUNTIME_INIT] as () => Promise<Runtime | { error: Omit<TurnError, 'ok'> }>;
   const options = inner[HANDLER_OPTIONS] as SaydoOptions;
-  const limits = inner[HANDLER_LIMITS] as { limited: (key: string) => boolean };
+  const limits = inner[HANDLER_LIMITS] as { limited: (key: string) => Promise<boolean> };
 
   async function respond(message: JsonRpcMessage, user: SaydoUser, runtime: Runtime, request: Request) {
     const origin = options.external?.appOrigin ?? new URL(request.url).origin;
@@ -95,7 +95,7 @@ export function createMcpHandler(registry: Registry, overrides: SaydoOptions = {
       case 'tools/call': {
         const name = String(params.name ?? '');
         const args = (params.arguments ?? {}) as Record<string, unknown>;
-        if (limits.limited(user.id)) return rpcResult(message.id, text('Too many requests. Wait a minute and try again.', true));
+        if (await limits.limited(user.id)) return rpcResult(message.id, text('Too many requests. Wait a minute and try again.', true));
         if (name === STATUS_TOOL.name) {
           const status = await runtime.engine.grantStatus(user, String(args.grantId ?? ''));
           return rpcResult(message.id, status.ok ? text({ state: status.state, receipt: status.receipt }, false, { state: status.state, status: status.receipt?.status ?? null, message: status.receipt?.message ?? null, result: (status.receipt?.result as Record<string, unknown>) ?? null }) : text(status.message, true));

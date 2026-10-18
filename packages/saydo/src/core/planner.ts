@@ -28,6 +28,8 @@ export interface PlannerInput {
   page: PageInfo;
   /** Structured extras for deterministic planners; model planners ignore them. */
   hints: { routes: NavTarget[] };
+  /** Who is asking, and from which page (per-request model or instruction choices). */
+  context?: { user: import('./types').SaydoUser; route: string };
 }
 
 export interface PlannerOutput {
@@ -40,9 +42,15 @@ export interface PlannerOutput {
  * The only thing that talks to a model. The engine owns the loop, the policy
  * and execution; a planner just proposes the next text and tool calls.
  */
+export interface PlanOptions {
+  signal?: AbortSignal;
+  /** Streaming: called with each piece of the reply text as the model writes it. */
+  onText?: (delta: string) => void;
+}
+
 export interface Planner {
   readonly name: string;
-  plan(input: PlannerInput, options?: { signal?: AbortSignal }): Promise<PlannerOutput>;
+  plan(input: PlannerInput, options?: PlanOptions): Promise<PlannerOutput>;
 }
 
 type ScriptStep = PlannerOutput | ((input: PlannerInput) => PlannerOutput);
@@ -59,13 +67,14 @@ export function mockPlanner(options: { script?: ScriptStep[] } = {}): Planner {
   let step = 0;
   return {
     name: 'mock',
-    async plan(input) {
+    async plan(input, planOptions) {
+      let output: PlannerOutput;
       if (options.script) {
         const next = options.script[Math.min(step++, options.script.length - 1)];
-        const output = typeof next === 'function' ? next(input) : next;
-        return output ?? { text: 'Done.', calls: [] };
-      }
-      return heuristic(input);
+        output = (typeof next === 'function' ? next(input) : next) ?? { text: 'Done.', calls: [] };
+      } else output = heuristic(input);
+      if (output.text) planOptions?.onText?.(output.text);
+      return output;
     },
   };
 }

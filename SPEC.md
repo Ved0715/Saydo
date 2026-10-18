@@ -59,6 +59,10 @@ Rules:
 
 The tier is computed **only on the server**, from the server's own copy of the descriptor and the validated arguments. Client-supplied risk, tier or descriptor data MUST be ignored.
 
+**Blast radius.** For tier 3, the number of affected records is the capability's own count when it declares one (`blastRadius`, for filter-shaped inputs), otherwise the largest list input. A failing count MUST be treated as unlimited.
+
+**Taint.** When a request has read untrusted content (developer-marked page regions, results of imported tools, or results a capability declares untrusted), implementations SHOULD raise tier 1 calls in the rest of that request to tier 2. Untrusted results MUST reach the model marked as untrusted data.
+
 | Tier | From risk | Consent | Non-interactive callers |
 |---|---|---|---|
 | 0 | `read`, UI actions, navigation | none | MAY if exposed |
@@ -204,6 +208,8 @@ type PendingAction =
   | { type: 'dispatch'; toolCallId; kind: 'capability' | 'ui'; target; args; entry?; grant? };
 ```
 
+**Streaming.** A request MAY carry `stream: true`. The server then answers `application/x-ndjson`: zero or more `{ "type": "text", "text": string }` events with the reply as the model writes it, then exactly one `{ "type": "result", "result": TurnResult }`. Text events are display-only; the result is authoritative and MUST be identical to the non-streamed answer. A client that loses the stream MUST retry with the same `requestId`, and receives the stored result.
+
 ### 7.4 Loop semantics (server)
 
 - **Calls.** Calls within a step are processed serially. Processing pauses at the first `confirm` or `dispatch`, and the remaining calls stay queued in the sealed state.
@@ -259,7 +265,9 @@ interface Receipt {
 
 ## 9. Thread state
 
-The server MUST NOT trust client-supplied conversation history. The reference implementation seals the state with HMAC-SHA256. An implementation MAY instead store it server-side.
+The server MUST NOT trust client-supplied conversation history. Sealed state MUST be authenticated and SHOULD be encrypted, since it carries action results and record handles. The reference implementation uses AES-256-GCM with a key derived from the deployment secret by HKDF-SHA-256. An implementation MAY instead store the state server-side (§9.1).
+
+**Identity.** Every grant, conversation and limit is keyed by the user. A server without an authenticated user MUST NOT key them all by one shared identity. The reference implementation issues each browser its own sealed visitor identity, also limits cookie-less clients per client IP, and in production refuses data-changing capabilities and stored conversations without an authenticated user unless the deployment explicitly allows anonymous visitors.
 
 Sealed state contains:
 
@@ -306,6 +314,7 @@ Gated actions (tier ≥ 1) require a reachable server that holds grants. This dr
 Annotations are hints. Enforcement stays with §4 and §6.
 
 - WebMCP emission MUST feature-detect `document.modelContext`, falling back to `navigator.modelContext`.
+- Hosts SHOULD serve `Permissions-Policy: tools=()` (WebMCP's policy-controlled feature) unless the app emits browser-agent tools, and `tools=(self)` when it does.
 - Tools MUST be registered with an `AbortSignal` tied to component unmount.
 - Implementations MUST NOT register a tool twice (native and polyfill).
 

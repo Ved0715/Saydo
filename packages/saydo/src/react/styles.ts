@@ -62,4 +62,7 @@ export const STYLES = `
 .saydo-history .saydo-option button:first-child{flex:1;display:flex;justify-content:space-between;gap:12px;text-align:left;min-width:0}
 .saydo-history .saydo-option button:first-child span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .saydo-history .saydo-option[aria-current="true"]{background:var(--saydo-surface)}
+.saydo-streaming::after{content:"";display:inline-block;width:.5em;height:1em;margin-left:2px;vertical-align:-2px;background:var(--saydo-accent);opacity:.6;animation:saydo-blink 1s steps(2) infinite}
+@keyframes saydo-blink{to{opacity:0}}
+@media (prefers-reduced-motion:reduce){.saydo-streaming::after{animation:none}}
 `;

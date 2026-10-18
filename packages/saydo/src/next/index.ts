@@ -10,7 +10,19 @@ export interface WithSaydoOptions {
   capabilityDirs?: string[];
   /** Regenerate the registry when app/ or capabilities change in dev. Default true. */
   watch?: boolean;
+  /**
+   * In-page browser agents (WebMCP). By default pages are served with
+   * `Permissions-Policy: tools=()`, so no script on the page (a tag manager, a compromised
+   * dependency) can register tools for browser agents. Set `agents: true` when you use
+   * `<SaydoProvider agents>` (the policy becomes `tools=(self)`), or `permissionsPolicy: false`
+   * to manage the header yourself.
+   */
+  agents?: boolean;
+  permissionsPolicy?: boolean;
 }
+
+/** The WebMCP policy-controlled feature is "tools" (default allowlist 'self'). */
+export const toolsPolicy = (agents: boolean | undefined) => (agents ? 'tools=(self)' : 'tools=()');
 
 const WATCHING = Symbol.for('saydo.watching');
 const PACKAGES = ['saydo'];
@@ -59,8 +71,17 @@ export function withSaydo(nextConfig: NextConfig = {}, options: WithSaydoOptions
 
   const registryPath = path.join(dir, OUT_DIR, REGISTRY_FILE);
   const userWebpack = nextConfig.webpack;
+  const userHeaders = nextConfig.headers;
   return {
     ...nextConfig,
+    ...(options.permissionsPolicy === false
+      ? {}
+      : {
+          async headers() {
+            const own = userHeaders ? await userHeaders() : [];
+            return [...own, { source: '/:path*', headers: [{ key: 'Permissions-Policy', value: toolsPolicy(options.agents) }] }];
+          },
+        }),
     transpilePackages: [...new Set([...(nextConfig.transpilePackages ?? []), ...PACKAGES])],
     turbopack: {
       ...nextConfig.turbopack,

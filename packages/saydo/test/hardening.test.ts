@@ -283,10 +283,49 @@ describe('handler protections', () => {
       { routes: [{ pattern: '/' }], capabilities: [] },
       { secret: SECRET, lockfile: false, rateLimit: false, budget: { requestsPerDay: 2 }, planner: mockPlanner({ script: [say('ok')] }) },
     );
-    expect((await post(handler, turn)).status).toBe(200);
-    expect((await post(handler, turn)).status).toBe(200);
-    const third = await post(handler, turn);
+    // A browser keeps the visitor cookie it was given.
+    const first = await post(handler, turn);
+    expect(first.status).toBe(200);
+    const cookie = first.headers.get('set-cookie')!.split(';')[0]!;
+    const json = { 'content-type': 'application/json', cookie };
+    expect((await post(handler, turn, json)).status).toBe(200);
+    const third = await post(handler, turn, json);
     expect(third.status).toBe(429);
     expect(await third.json()).toMatchObject({ code: 'budget' });
+  });
+
+  it('gives each signed-out visitor an isolated identity, and limits cookie-less clients per IP', async () => {
+    const handler = createHandler(
+      { routes: [{ pattern: '/' }], capabilities: [] },
+      { secret: SECRET, lockfile: false, rateLimit: false, budget: { requestsPerDay: 2 }, planner: mockPlanner({ script: [say('ok')] }) },
+    );
+    const a = await post(handler, turn);
+    const b = await post(handler, turn);
+    const cookieA = a.headers.get('set-cookie')!;
+    expect(cookieA).toMatch(/^saydo_visitor=[^;]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=\d+$/);
+    expect(cookieA.split(';')[0]).not.toBe(b.headers.get('set-cookie')!.split(';')[0]);
+    // Returning visitors keep their identity: no new cookie.
+    expect((await post(handler, turn, { 'content-type': 'application/json', cookie: cookieA.split(';')[0]! })).headers.get('set-cookie')).toBeNull();
+    // A script that drops cookies is still counted per client IP.
+    const ip = { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.9' };
+    expect((await post(handler, turn, ip)).status).toBe(200);
+    expect((await post(handler, turn, ip)).status).toBe(200);
+    expect((await post(handler, turn, ip)).status).toBe(429);
+    // A forged visitor cookie is ignored (a fresh identity is issued).
+    expect((await post(handler, turn, { 'content-type': 'application/json', cookie: 'saydo_visitor=forged.sig' })).headers.get('set-cookie')).toMatch(/^saydo_visitor=/);
+  });
+
+  it('caps the body by bytes read, not by the content-length header', async () => {
+    const handler = createHandler({ routes: [{ pattern: '/' }], capabilities: [] }, { secret: SECRET, lockfile: false, planner: mockPlanner() });
+    const big = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'message', text: 'x'.repeat(300_000) })));
+        controller.close();
+      },
+    });
+    const response = await handler(
+      new Request('http://app.test/api/saydo', { method: 'POST', headers: { host: 'app.test', 'content-type': 'application/json' }, body: big, duplex: 'half' } as RequestInit),
+    );
+    expect(response.status).toBe(413);
   });
 });

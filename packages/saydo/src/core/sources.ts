@@ -32,6 +32,11 @@ interface SourceOptions {
   include?: string[];
   /** Hide these names. */
   exclude?: string[];
+  /**
+   * You control this source: its descriptions and results are not labeled third-party, and
+   * reading its results does not make later steps ask for confirmation. Default false.
+   */
+  trusted?: boolean;
 }
 
 const ID_SAFE = (value: string) =>
@@ -72,6 +77,8 @@ interface JsonCapabilityInput {
   jsonSchema: Record<string, unknown>;
   validate?: (value: unknown) => Promise<{ success: true; data: unknown } | { success: false; message: string }>;
   run: (input: Record<string, unknown>, ctx: CapabilityContext) => Promise<unknown>;
+  /** Results come from a source you control (your tRPC router, or `trusted: true`). */
+  trusted?: boolean;
 }
 
 /** Build a capability described by a JSON Schema (for sources that are not Zod-typed). */
@@ -87,15 +94,17 @@ function jsonCapability(input: JsonCapabilityInput): Capability {
       return input.validate ? input.validate(value) : { success: true, data: value };
     },
     risk: input.risk as Exclude<Risk, 'reversible'>,
+    untrustedResults: !input.trusted,
     handler: async (args, ctx) => ({ result: await input.run(args as Record<string, unknown>, ctx) }),
   });
 }
 
-async function fromAiTool(id: string, name: string, tool: Tool, risk: Risk, describe?: string): Promise<Capability> {
+async function fromAiTool(id: string, name: string, tool: Tool, risk: Risk, describe?: string, trusted?: boolean): Promise<Capability> {
   const schema = asSchema(tool.inputSchema as Parameters<typeof asSchema>[0]);
   const jsonSchema = (await schema.jsonSchema) as Record<string, unknown>;
   return jsonCapability({
     id,
+    trusted,
     describe: describe ?? (typeof tool.description === 'string' ? tool.description : name),
     title: (tool as { title?: string }).title,
     risk,
@@ -131,7 +140,7 @@ export function aiTools(toolset: Record<string, Tool>, options: SourceOptions = 
       for (const [name, tool] of Object.entries(toolset)) {
         if (!selected(options, name)) continue;
         const id = options.prefix ? `${options.prefix}.${ID_SAFE(name)}` : ID_SAFE(name);
-        out.push(await fromAiTool(id, name, tool, riskFor(options.risk, name)));
+        out.push(await fromAiTool(id, name, tool, riskFor(options.risk, name), undefined, options.trusted));
       }
       return out;
     },
@@ -139,8 +148,6 @@ export function aiTools(toolset: Record<string, Tool>, options: SourceOptions = 
 }
 
 export interface McpOptions extends SourceOptions {
-  /** The server is yours: show its tool descriptions without the third-party label. */
-  trustDescriptions?: boolean;
   url?: string;
   headers?: Record<string, string>;
   /** 'http' (default) or 'sse'. */
@@ -186,7 +193,7 @@ export function mcp(options: McpOptions): ToolSource {
         const hints = annotations.get(name);
         if (options.trustAnnotations && hints) fallback = hints.readOnlyHint ? 'read' : hints.destructiveHint === false ? 'write' : 'destructive';
         const id = options.prefix ? `${options.prefix}.${ID_SAFE(name)}` : ID_SAFE(name);
-        out.push(await fromAiTool(id, name, tool, riskFor(options.risk, name, fallback), thirdParty(typeof tool.description === 'string' ? tool.description : name, options.trustDescriptions)));
+        out.push(await fromAiTool(id, name, tool, riskFor(options.risk, name, fallback), thirdParty(typeof tool.description === 'string' ? tool.description : name, options.trusted), options.trusted));
       }
       return out;
     },
@@ -216,8 +223,6 @@ function deref(schema: unknown, root: Json, depth = 0): unknown {
 }
 
 export interface OpenAPIOptions extends SourceOptions {
-  /** The spec is yours: show its descriptions without the third-party label. */
-  trustDescriptions?: boolean;
   /** Base URL of the API. Default: the spec's first server, resolved against the request origin. */
   baseUrl?: string;
   /** Risk per HTTP method for unmapped operations, e.g. { GET: 'read' }. */
@@ -292,7 +297,8 @@ export function fromOpenAPI(spec: Json | string | URL, options: OpenAPIOptions =
           out.push(
             jsonCapability({
               id: `${options.prefix ? `${options.prefix}.` : ''}${ID_SAFE(operationId)}`,
-              describe: thirdParty(String(op.summary ?? op.description ?? `${upper} ${route}`), options.trustDescriptions),
+              describe: thirdParty(String(op.summary ?? op.description ?? `${upper} ${route}`), options.trusted),
+              trusted: options.trusted,
               risk,
               jsonSchema: { type: 'object', properties, required, additionalProperties: false },
               run: async (args, ctx) => {
@@ -370,6 +376,7 @@ export function fromTRPC(router: TRPCRouterLike, options: TRPCOptions): ToolSour
           jsonCapability({
             id: `${options.prefix ? `${options.prefix}.` : ''}${path}`,
             describe: def.meta?.description ?? `${def.type ?? 'procedure'} ${path}`,
+            trusted: options.trusted ?? true, // your own router
             risk: riskFor(options.risk, path, fallback),
             jsonSchema,
             validate:

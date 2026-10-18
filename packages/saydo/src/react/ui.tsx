@@ -99,7 +99,7 @@ export function AssistantUI({ placeholder }: { placeholder?: string }) {
   useEffect(() => {
     const body = bodyRef.current;
     if (body) body.scrollTop = body.scrollHeight;
-  }, [nav.items.length, nav.confirm]);
+  }, [nav.items.length, nav.confirm, nav.streaming]);
 
   const submit = () => {
     const picked = active >= 0 ? suggestions[active] : undefined;
@@ -189,6 +189,12 @@ export function AssistantUI({ placeholder }: { placeholder?: string }) {
                   {item.text}
                 </div>
               ))}
+              {nav.streaming && (
+                // The reply as it is written; screen readers get the final text instead of every token.
+                <div className="saydo-item saydo-assistant saydo-streaming" aria-hidden="true">
+                  {nav.streaming}
+                </div>
+              )}
               {nav.confirm && (
                 <ConfirmCard
                   confirm={nav.confirm}

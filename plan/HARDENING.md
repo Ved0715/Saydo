@@ -181,7 +181,7 @@ The analysis says "do anything with AI" is the wrong promise. Saydo never made t
 | 11 Standard | Spec, conformance, second implementation, IP, extensibility | ✅ / 🔧 from round 1. 🔧 SPEC: §3.5 workflows, §3.6 versions, §3.7 third-party text, the §4 policy rule, §9.1 the stored-conversation profile, §9.2 offline. 🗺 A non-TypeScript server implementation. |
 | 12 Security | Manifest signing | ✳ Same-origin TLS from the server that also serves the code: anyone able to alter the manifest can alter the JavaScript, so a signature adds nothing (SPEC §15). |
 | | Local-first / offline profile | ✳ Decided (SPEC §9.2): gated actions need a server; offline, the palette works and the assistant reports itself unavailable. No weaker "local consent". |
-| | Tenant-authored text as tool poisoning | 🔧 MCP and OpenAPI descriptions are labeled `[Third-party description]`, flattened and capped at 500 characters, and the model is told never to follow them (`trustDescriptions` for your own servers). They default to `destructive`. |
+| | Tenant-authored text as tool poisoning | 🔧 MCP and OpenAPI descriptions are labeled `[Third-party description]`, flattened and capped at 500 characters, and the model is told never to follow them (`trusted: true` for sources you control). They default to `destructive`. |
 | | Bug bounty | 🗺 With the first public release (needs the maintainers' program). |
 
 ## Conversation storage (the store-plugin request)
@@ -219,3 +219,38 @@ The analysis proposed a pluggable store with an optimal Firestore option. Built 
   - It solves the atomicity and TTL needs natively, which is why it is a first-class plugin.
   - Making any database the default would couple the zero-config path to a vendor.
   - Real-time listeners were not needed: threads are per tab by design (✳).
+
+---
+
+# Round 3: security and scale review of the code
+
+Date: 2026-10-18. This review read the actual code and was precise, so most findings were confirmed and fixed. Test count after this round: `pnpm test`, 221 passing. CI on GitHub Actions (Node 22 and 24) is green, including the store contracts against the **real Firestore emulator**, which closes the gap left open in round 2.
+
+| # | Finding | Verdict | Fix |
+|---|---|---|---|
+| S1 | Without `getUser` every visitor was `anonymous`, sharing grants, stored conversations and limits | ✅ Confirmed, and worse than stated: the rate limit was shared by all visitors | 🔧 Each browser gets its own sealed `saydo_visitor` identity (HttpOnly, SameSite=Lax, Secure on https). Cookie-less clients are also limited per client IP (the platform proxy header, or the socket address passed out-of-band by `saydo/node`, never a forgeable header). Production refuses data-changing server actions and stored conversations without `getUser` unless `anonymous: true`, with code `no_user` and a fix. |
+| S2 | `bulkCount` misses filter-shaped inputs | ✅ Confirmed | 🔧 `blastRadius(input, { user })` on any capability. It drives tier 3 (step-up), the typed count, and an "Affects N records" line on the card, for the assistant and for agents. Errors count as unlimited (fail closed). |
+| S3 | Taint does not raise the tier | ✅ Confirmed (round 1 had declined it as confirm fatigue) | 🔧 Narrowed so it doesn't cause fatigue. A request is tainted only by *strong* signals: developer-marked untrusted page regions (`data-saydo-untrusted`, sent as ⟦…⟧), results of imported tools (MCP, OpenAPI, AI SDK), and actions declared `untrustedResults`. Tainted requests cannot auto-run reversible steps; they confirm, and the card says why. Taint resets with the next user message. `taint: 'off'` opts out. |
+| S4 | Are third-party *results* spotlighted? | ✅ Confirmed gap: only descriptions were labeled | 🔧 Untrusted results carry `receipt.untrusted` and reach the model as `<untrusted>…</untrusted>` text, with angle brackets neutralized and the length capped. `trusted: true` per source; tRPC (your router) is trusted by default. |
+| S5 | No `Permissions-Policy: tools=()` | ✅ Partly. The WebMCP spec does define the policy-controlled feature `tools` (default allowlist `'self'`). The proposed `tools=()` would also block the app's own tools. No header can separate a third-party script in the page from the app, since both run as the page's origin. | 🔧 By default `withSaydo`, the Vite dev server and `serveStatic` send `tools=()`, so no script on the page can register browser-agent tools. With `agents: true` they send `tools=(self)`. If the policy blocks registration, the browser warns with the fix. |
+| C1 | Rate limit, budget and breaker are per instance; budget map cleared wholesale | ✅ Confirmed | 🔧 `LimitStore` with `memoryLimitStore` (expired windows dropped one by one; nobody's budget resets early) and `redisLimitStore` (one atomic Lua script per hit, contract-tested on a real `redis-server`). Rate limits use fixed windows that work the same across instances. The circuit breaker stays per instance on purpose (✳): each instance reacts to its own evidence. |
+| C2 | Firestore transcript `seq` can collide across instances | ✅ Confirmed | 🔧 The engine numbers transcript entries from a counter inside the conversation state, which is saved with compare-and-set. Firestore orders by it. A new contract test proves the order survives skewed clocks, on every store. |
+| C3 | Sealed state is signed, not encrypted | ✅ Confirmed | 🔧 Encrypted rather than only documented: AES-256-GCM with an HKDF-derived key (WebCrypto, edge-safe). The browser can no longer read results, handles or history. |
+
+**Also found while fixing:**
+
+- The body cap trusted `content-length`; it now counts bytes as they are read.
+- The Node adapter (`toNodeHandler`) kept only the last `Set-Cookie` and buffered whole responses; it now passes every cookie and streams.
+- "New chat" during a running request let the late answer land in the new conversation; results of older requests are now discarded.
+- CI on Node 20 could not run the jsdom tests (Node 20 is end-of-life). The test matrix is now Node 22/24, `engines` is `>=22`, actions are on current majors, and test failures appear as public annotations.
+
+## The customization gaps
+
+| Gap | Result |
+|---|---|
+| Per-request model | 🔧 `model: ({ user, route }) => model \| [primary, backup]`. |
+| Per-tenant or bring-your-own key | 🔧 Covered by the same hook: return a provider created with that tenant's key. You judged a dedicated feature unnecessary, and none is needed. |
+| Streaming | 🔧 The AI SDK planner streams with `streamText`. The handler answers `stream: true` requests with NDJSON (text events, then exactly one authoritative result), and the provider and `saydo/dom` render the reply as it is written (`stream={false}` to opt out). Failover happens only before any text is shown. A dropped stream is retried by `requestId` and gets the stored result. |
+| Per-request config | 🔧 `instructions: ({ user, route }) => …`. |
+
+**Still open:** a measured token-cost comparison of tool search vs prompt caching under real load. It needs a real provider, real traffic and a budget, so it belongs to the testing phase; `onUsage`, `pricing` and `tracer` produce the numbers.

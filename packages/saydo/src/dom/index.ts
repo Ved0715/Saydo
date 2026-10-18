@@ -28,6 +28,8 @@ export interface CreateSaydoOptions {
   fetch?: typeof fetch;
   /** Refetch client caches after AI writes (keys from `invalidate(...)`, or undefined after any write). */
   onInvalidate?: (keys?: string[]) => void;
+  /** Show replies as the model writes them. Default true. */
+  stream?: boolean;
 }
 
 export interface SaydoClient {
@@ -74,6 +76,7 @@ export function createSaydo(options: CreateSaydoOptions = {}): SaydoClient {
     stepUp: options.stepUp,
     messages: options.messages,
     onInvalidate: options.onInvalidate,
+    stream: options.stream,
   });
   const cleanups: (() => void)[] = [];
   const owner = Symbol('saydo-dom');
@@ -306,6 +309,7 @@ function mountUI(runtime: SaydoRuntime, m: SaydoMessages, placeholder: string | 
         snap.reloadRequired &&
           h('div', { className: 'saydo-notice' }, `${m.reloadNotice} `, h('button', { type: 'button', onClick: () => location.reload() }, m.reloadButton)),
         ...snap.items.map((item) => h('div', { className: `saydo-item saydo-${item.role}`, 'data-status': item.status }, item.text)),
+        snap.streaming && h('div', { className: 'saydo-item saydo-assistant saydo-streaming', 'aria-hidden': 'true' }, snap.streaming),
         card?.el,
         pages.length > 0 &&
           h(

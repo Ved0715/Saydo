@@ -166,15 +166,18 @@ export default defineConfig({
 
 | Option | Default | What it does |
 |---|---|---|
-| `model` | mock planner in dev | Any AI SDK `LanguageModel`, or several (`[primary, backup]`) to fail over when a provider errors. Required in production unless you pass `planner`. |
+| `model` | mock planner in dev | Any AI SDK `LanguageModel`, several (`[primary, backup]`) to fail over when a provider errors, or a function that picks per request: `({ user, route }) => user.plan === 'pro' ? strong : fast`. Return a provider created with a tenant's own key to let tenants bring their key. Required in production unless you pass `planner`. |
 | `planner` | from `model` | Bring your own planner (custom agent loop). The consent gate still applies. |
-| `getUser(request)` | anonymous | Your signed-in user `{ id, ...anything }`. Return `null` to refuse. |
+| `getUser(request)` | per-browser visitor | Your signed-in user `{ id, ...anything }`. Return `null` to refuse. Without it, each browser gets its own signed anonymous identity, and production refuses actions that change data (or stored conversations) unless `anonymous: true`. |
+| `anonymous` | `false` | Allow signed-out visitors to use actions that change data (a public feedback form, a demo). Visitors never share approvals, conversations or limits, and cookie-less clients are also limited per IP. |
 | `see.page` | `true` | Send the visible page to the model as untrusted context. |
 | `act.elements` | `'all'` | `'all'` lets the assistant operate any visible element, `'annotated'` only `data-saydo` ones, `false` none. |
 | `act.defaultRisk` | `'write'` | Risk for page clicks you did not annotate. `'read'` removes those confirmations (your call); declared actions keep their own risk. `'destructive'` is stricter. |
 | `act.annotationsCanLowerRisk` | `true` | Set `false` if you render rich user HTML that could carry `data-saydo-risk`. |
 | `redact` | `'basic'` | Masks card numbers (Luhn-checked), SSNs and IBANs in screen text, element names, form values and context before anything reaches the model. `'strict'` also masks emails and phone numbers. Pass a function for your own rules, or `'none'`. |
-| `budget` | none | Per-user daily limits, `{ requestsPerDay, tokensPerDay }`, counted per server instance. |
+| `budget` | none | Per-user daily limits, `{ requestsPerDay, tokensPerDay }`. |
+| `limits` | in-process | Where rate-limit and budget counters live. With more than one instance use `redisLimitStore(...)`, so limits hold across all of them. |
+| `taint` | `'confirm'` | After the assistant reads content written by others (marked page regions, results of imported tools or `untrustedResults` actions), reversible steps in that request ask first instead of running with Undo. `'off'` relies on Undo alone. |
 | `onUsage` | none | `({ userId, inputTokens, outputTokens, cachedInputTokens, steps, costUsd })` after each request, for metrics and spend alerts. |
 | `pricing` | none | `{ input, output, cachedInput }` in USD per million tokens. Fills `costUsd` in `onUsage` and the inspector's per-page estimate. |
 | `tracer` | none | An OpenTelemetry tracer (`trace.getTracer('saydo')`). Emits a `saydo.plan` span per model step and a `saydo.execute` span per action. |
@@ -189,7 +192,7 @@ export default defineConfig({
 | `search` | keyword | `{ embed }`: find actions by meaning in large apps (more than `maxTools`). Falls back to keywords on errors. |
 | `record` | none | Receives every request (what the model saw and answered, and what happened). Replay it with `replayPlanner(records)` to turn an incident into a test. |
 | `store` | memory in dev | Where approvals live. `'memory'` is for single-instance servers. Production with gated actions needs a store, or an explicit `'memory'`. |
-| `instructions` | none | Brand voice or domain hints. They are appended and can never replace the safety rules. |
+| `instructions` | none | Brand voice or domain hints, appended and never replacing the safety rules. A function picks them per request: `({ user, route }) => …`. |
 | `maxTools` | `40` | Above this, only page-relevant actions are sent in full; the model finds the rest with `find_capability`. |
 | `rateLimit` | `30`/min/user | Requests per user per minute, or `false`. |
 | `maxSteps` | `6` | Model steps per request. |
@@ -273,7 +276,10 @@ export const archivePost = action({
 
 **Errors:** throw `new CapabilityError(status, hint)` to give the model a clear, safe reason. Raw exception text never reaches the model.
 
-Other options: `title`, `can(user)` (hidden from users who fail it), `scope: { routes }` (a relevance hint), `expose`, `version` (bump it when behavior changes: approvals shown for the old version are refused, never run against the new code), `confirm: { view }` (a custom card built from the validated input).
+Other options: `title`, `can(user)` (hidden from users who fail it), `scope: { routes }` (a relevance hint), `expose`, `version` (bump it when behavior changes: approvals shown for the old version are refused, never run against the new code), `confirm: { view }` (a custom card built from the validated input), and two safety hints:
+
+- `blastRadius: (input, { user }) => count`: for inputs that select by filter (`{ status: 'draft' }`) instead of listing records. A destructive call above 5 records then needs step-up and the card shows the count. If counting fails, the count is treated as unlimited. Inputs that list records (`z.array(Post.ref())`) are counted for you.
+- `untrustedResults: true`: the results contain text other people wrote (comments, emails, web pages). They reach the model marked as untrusted, and later steps in that request ask first.
 
 ### Workflows: several steps, one approval
 
@@ -454,6 +460,7 @@ tools: [
 - API error bodies are never passed to the model, so they cannot carry injected instructions.
 - New tool sources show up in the lockfile for review.
 - `mcp()` needs `npm install @ai-sdk/mcp`.
+- Descriptions and results from MCP servers, OpenAPI specs and AI SDK tools are treated as third-party text: labeled and capped for the model, and their results taint the request (see `taint`). Pass `trusted: true` to a source you control. tRPC routers are yours and trusted by default.
 
 ## 11. Your own UI
 
@@ -467,6 +474,8 @@ const ai = useSaydo();   // { open, items, busy, confirm, toasts, send, approve,
 ```
 
 Always pass the click event's `isTrusted` to `approve`. The server refuses approvals from synthetic events.
+
+**Streaming:** replies appear as the model writes them (newline-delimited JSON over the same endpoint; the final result is authoritative and a dropped stream is retried safely by `requestId`). Turn it off with `<SaydoProvider stream={false}>`.
 
 **Translate or rephrase any text:** `<SaydoProvider messages={{ launcher: 'Preguntar a la IA', confirm: 'Confirmar', … }}>`. The palette always shows an AI disclosure line (`messages.disclosure`).
 
@@ -531,6 +540,8 @@ export { default } from 'saydo/next/approve';
 Or render `<SaydoApproval grantId={id} />` inside your own layout.
 
 **WebMCP:** `<SaydoProvider agents>` registers the `browserAgent` actions with `document.modelContext` when the browser supports it. Calls run under the same policy, and gated ones show the normal confirm card and wait for the user.
+
+Pages are served with `Permissions-Policy: tools=()` by default (WebMCP's policy feature), so no script on your page can register tools for browser agents, including a tag manager or a compromised dependency. When you turn agents on, also pass `agents: true` to `withSaydo(config, { agents: true })` (or the Vite plugin and `serveStatic`). The policy then becomes `tools=(self)`: your own origin only, no cross-origin frames.
 
 Agents pass plain record ids, and Saydo checks each one through your entity's `get`, so an agent can never reach another user's data. `never` actions are never listed.
 
@@ -607,6 +618,9 @@ const store = redisGrantStore({ eval: (script, keys, args) => redis.eval(script,
 - **Central policy:** `authorize: ({ user, capability, input, origin }) => …` runs for every action call (assistant, MCP and browser agents) after records are resolved, so it sees real objects. Errors deny. It does not cover clicks on page elements; those follow `act`.
 - **Reproducing incidents:** `record: (turn) => log.write(turn)`, then in a test: `createEngine({ …, planner: replayPlanner(turns, { strict: true }) })`. `strict` fails when the app now offers the model different tools than when the turn happened.
 - **Model outages:** `model: [anthropic('claude-sonnet-5-5'), openai('gpt-5')]` fails over per step; after repeated failures the circuit breaker answers fast and the palette keeps working.
+- **Several instances:** use `limits: redisLimitStore({ eval })` so rate limits and budgets are shared. The circuit breaker stays per instance on purpose: each instance stops calling a failing provider on its own evidence.
+- **Signed-out apps:** without `getUser`, visitors get an isolated identity from a signed, HttpOnly cookie. Cookie-less clients are also limited per IP, taken from your platform's proxy header (Vercel, Cloudflare, Netlify) or, with `saydo/node`, the socket address. On a bare server with no proxy, put a gateway in front for IP limits.
+- **Sealed state is encrypted** (AES-256-GCM, key derived from `SAYDO_SECRET`), so the browser can neither read nor alter the conversation state it carries.
 - **Tracing and cost:** pass `tracer: trace.getTracer('saydo')` for OpenTelemetry spans, and `pricing` to get `costUsd` per request in `onUsage`. `npx saydo inspect /page` and the dev inspector show the estimated input tokens per model step on each page.
 - **Limits and outages:** per-user `rateLimit` and `budget`. After repeated model failures a circuit breaker returns a fast `planner_unavailable` for 30 seconds, and the palette keeps working.
 - **Lockfile:** `saydo.capabilities.json` is written in dev and checked during `next build`. In CI (`CI=true`) a stale lockfile fails the build, so lowered risk and newly exposed actions always show up in review.
@@ -636,6 +650,10 @@ Any fetch-style server (Hono, Bun, Deno, Workers) can use `createHandler(registr
 | Forged conversation history | Thread state is HMAC-signed and bound to the user and the browser tab. Tampered state is rejected. |
 | Guessed or foreign ids | The model only sees server-minted handles, and each one is re-checked through your entity's `get` on every use. |
 | Data leaking out | `data-saydo-private` content never leaves the browser. Passwords and payment fields are masked. URL parameters must be declared. Navigation effects must be internal paths. API error bodies are dropped. |
+| Visitors of an app without sign-in sharing state | Each browser gets its own signed identity; production refuses data-changing actions without `getUser` unless you opt into `anonymous`. |
+| "Delete all drafts" looking like one record | `blastRadius` counts filter-selected records; bulk destructive calls need step-up. |
+| A comment, email or API response steering the model | Untrusted text is marked for the model, third-party results are spotlighted, and a request that read it cannot auto-run even reversible steps (`taint`). |
+| Scripts in the page registering browser-agent tools | `Permissions-Policy: tools=()` unless you turn agents on (then `tools=(self)`). |
 | Scripts or browser agents clicking "Approve" | Approvals from synthetic (`isTrusted: false`) events are refused. Bulk destructive steps need typed confirmation or the user's passkey (`stepUp`). A per-request confirmation budget stops a hijacked turn from flooding the user with cards. `never` actions cannot run at all. |
 | A deploy changes an action while a card is open | Approvals record the action's `version`; a different version is refused (`reload_required`), never run. |
 | Third-party tool descriptions carrying instructions ("tool poisoning") | Descriptions from MCP servers and OpenAPI specs are labeled third-party, flattened and capped, and the model is told never to follow them. Their tools default to `destructive`. |
@@ -668,7 +686,7 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 |---|---|
 | `saydo` | `action` (`defineCapability`), `serverAction`, `workflow`, `entity` (`defineEntity`), `entityRef`, `page` (`defineRoute`), `pages` (`defineRoutes`), `navigate`, `refresh`, `toast`, `invalidate`, `CapabilityError`, types |
 | `saydo/config` | `defineConfig` |
-| `saydo/server` | `mcp`, `aiTools`, `fromOpenAPI`, `fromTRPC`, `postgresGrantStore`, `redisGrantStore`, `firestoreGrantStore`, `MemoryGrantStore`, `memoryThreadStore`, `postgresThreadStore`, `firestoreThreadStore`, `replayPlanner`, `webauthn`, `memoryPasskeyStore`, `postgresPasskeyStore`, `createAuditLog`, `verifyAuditChain`, `redactor`, `costOf`, `createEngine`, `mockPlanner`, `aiSdkPlanner`, `seal`/`unseal` |
+| `saydo/server` | `mcp`, `aiTools`, `fromOpenAPI`, `fromTRPC`, `memoryLimitStore`, `redisLimitStore`, `postgresGrantStore`, `redisGrantStore`, `firestoreGrantStore`, `MemoryGrantStore`, `memoryThreadStore`, `postgresThreadStore`, `firestoreThreadStore`, `replayPlanner`, `webauthn`, `memoryPasskeyStore`, `postgresPasskeyStore`, `createAuditLog`, `verifyAuditChain`, `redactor`, `costOf`, `createEngine`, `mockPlanner`, `aiSdkPlanner`, `seal`/`unseal` |
 | `saydo/next` | `withSaydo` |
 | `saydo/next/client` | `SaydoProvider`, `useAction`, `useCapability`, `useSaydoContext`, `useSaydoGuard`, `useSaydo`, `usePasskeys`, `useConversations`, `SaydoApproval`, `ConfirmCard`, `AssistantUI` |
 | `saydo/next/server` | `createSaydoHandler`, `withGrant` |
@@ -700,7 +718,7 @@ In development, the palette also has **"What the AI sees"**: the screen outline,
 
 ## Status
 
-v0.1. Built and tested (196 tests, including Postgres concurrency on PGlite, a real Redis server, a software WebAuthn authenticator and the AI SDK MCP client, plus real builds of both templates installed from packed tarballs):
+v0.1. Built and tested (221 tests, including Postgres concurrency on PGlite, a real Redis server, a software WebAuthn authenticator and the AI SDK MCP client, plus real builds of both templates installed from packed tarballs):
 
 - Next.js App Router, Vite + React Router, and framework-free `saydo/dom`
 - page vision and element actions
@@ -712,13 +730,13 @@ v0.1. Built and tested (196 tests, including Postgres concurrency on PGlite, a r
 - workflows (composed actions with compensation), a central `authorize` policy, version-pinned approvals
 - optional conversation storage (Firestore, Postgres, memory) with history and resume
 - meaning-based action search, record and replay, model failover, automatic UI refresh after writes
+- streaming replies, per-request model and instructions, encrypted sealed state, isolated anonymous visitors, shared Redis limits, taint escalation, blast-radius step-up
 - OpenTelemetry tracing and cost estimates
 - the lockfile, CLI, `create-saydo-app` and the dev inspector
 
 Next on the roadmap:
 
 - voice input
-- streaming responses
 - Pages Router and TanStack Router hosts
 - form-aware drafts with visible diffs
 - a second, non-TypeScript server implementation of the protocol

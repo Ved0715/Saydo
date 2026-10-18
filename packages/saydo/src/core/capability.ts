@@ -37,6 +37,19 @@ interface CapabilityCommon<S extends z.ZodObject> {
   /** Short human title for receipts and confirm cards. Defaults to `describe`. */
   title?: string;
   version?: number;
+  /**
+   * How many records this call affects, for inputs that select by filter rather than by listing
+   * records (`{ status: 'draft' }`). Destructive calls above the bulk threshold then need step-up,
+   * and the card shows the count. An error counts as unlimited. Inputs that list records
+   * (arrays of `Post.ref()`) are counted automatically.
+   */
+  blastRadius?: (input: z.output<S>, ctx: { user: SaydoUser }) => number | Promise<number>;
+  /**
+   * The results contain text other people wrote (comments, emails, web pages). They reach the
+   * model marked as untrusted, and later steps in the same request need the user's click even
+   * when they would normally run directly. Imported tools (MCP, OpenAPI, AI SDK) set this.
+   */
+  untrustedResults?: boolean;
   /** Always require step-up (passkey, or typed text without one) to approve this action. */
   stepUp?: boolean;
   /** Server-side permission check. Capabilities failing it are never offered. */

@@ -4,13 +4,14 @@ import type { Capability } from './capability';
 import { GRANT_HEADER } from './constants';
 import { createEngine, type AuditEntry, type Engine } from './engine';
 import { MemoryGrantStore, type GrantStore } from './grants';
+import { createBudget, createRateLimiter, memoryLimitStore, type LimitStore } from './limits';
 import { buildLock, diffLock, formatLockDiff, LOCKFILE_NAME, parseLock, serializeLock } from './lockfile';
 import { mockPlanner, type Planner } from './planner';
 import { seal, unseal } from './seal';
 import type { RegistrationCredential, WebAuthnStepUp } from './webauthn';
 import { isToolSource, type ToolEntry } from './sources';
 import type { EngineOptions } from './engine';
-import type { TurnError } from './protocol';
+import type { TurnError, TurnResult } from './protocol';
 import type { RouteRecord } from './route';
 import type { SaydoUser } from './types';
 
@@ -19,18 +20,38 @@ export { GRANT_HEADER };
 /** Everything configurable, usually written once in `saydo.config.ts`. */
 export interface SaydoOptions {
   /** Any AI SDK model. Omit in dev to use the deterministic mock planner. */
-  /** Any AI SDK model, or several in order of preference (failover on errors). */
-  model?: LanguageModel | LanguageModel[];
+  /**
+   * Any AI SDK model, or several in order of preference (failover on errors), or a function that
+   * picks per request: `({ user, route }) => user.plan === 'pro' ? strongModel : fastModel`
+   * (also how a tenant brings its own key: return a provider created with that key).
+   */
+  model?: LanguageModel | LanguageModel[] | ((context: { user: SaydoUser; route: string }) => LanguageModel | LanguageModel[]);
   /** Bring your own planner (custom agent, AG-UI backend). The gate still applies. */
   planner?: Planner;
-  /** Resolve the signed-in user. Defaults to an anonymous user (fine for navigation-only apps). */
+  /**
+   * Resolve the signed-in user (return null to refuse). Without it, each browser gets its own
+   * signed anonymous identity, and production refuses actions that change data unless you set
+   * `anonymous: true`.
+   */
   getUser?: (request: Request) => SaydoUser | null | undefined | Promise<SaydoUser | null | undefined>;
+  /**
+   * Allow signed-out visitors to use actions that change data (a public feedback form, a demo).
+   * Each browser gets its own isolated identity (a signed cookie), so visitors never share
+   * approvals, conversations or limits. Default false in production.
+   */
+  anonymous?: boolean;
+  /**
+   * Where rate-limit and budget counters live. Default: in this process. With several
+   * instances use `redisLimitStore(...)`, or limits multiply by the instance count.
+   */
+  limits?: LimitStore;
   /** Signs thread state. Defaults to SAYDO_SECRET, or a generated dev secret. */
   secret?: string;
   /** Durable grant store. `'memory'` opts into the in-process store (single-instance servers only). */
   store?: GrantStore | 'memory';
   appName?: string;
-  instructions?: string;
+  /** Brand voice and domain hints, appended to the safety rules. A function picks them per request (`{ user, route }`). */
+  instructions?: EngineOptions['instructions'];
   /** Requests per user per minute. Default 30; `false` disables. */
   rateLimit?: number | false;
   maxSteps?: number;
@@ -106,6 +127,7 @@ export interface Registry {
 interface Runtime {
   engine: Engine;
   getUser: (request: Request) => Promise<SaydoUser | null>;
+  resolveUser: (request: Request) => Promise<{ user: SaydoUser | null; setCookie?: string }>;
   store: GrantStore;
   secret: string;
 }
@@ -151,48 +173,6 @@ function createCircuitBreaker(threshold = 5, coolDownMs = 30_000) {
         failures = 0;
       }
     },
-  };
-}
-
-function createBudget(limits: NonNullable<SaydoOptions['budget']>) {
-  const day = () => new Date().toISOString().slice(0, 10);
-  const usage = new Map<string, { day: string; requests: number; tokens: number }>();
-  const entry = (userId: string) => {
-    const today = day();
-    let current = usage.get(userId);
-    if (!current || current.day !== today) {
-      current = { day: today, requests: 0, tokens: 0 };
-      usage.set(userId, current);
-      if (usage.size > 50_000) usage.clear();
-    }
-    return current;
-  };
-  return {
-    exceeded(userId: string) {
-      const current = entry(userId);
-      return (
-        (limits.requestsPerDay !== undefined && current.requests >= limits.requestsPerDay) ||
-        (limits.tokensPerDay !== undefined && current.tokens >= limits.tokensPerDay)
-      );
-    },
-    countRequest(userId: string) {
-      entry(userId).requests += 1;
-    },
-    countTokens(userId: string, tokens: number) {
-      entry(userId).tokens += tokens;
-    },
-  };
-}
-
-function createRateLimiter(perMinute: number) {
-  const hits = new Map<string, number[]>();
-  return (key: string) => {
-    const now = Date.now();
-    const recent = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
-    recent.push(now);
-    hits.set(key, recent);
-    if (hits.size > 10_000) hits.clear();
-    return recent.length > perMinute;
   };
 }
 
@@ -254,24 +234,38 @@ export type SaydoHandler = (request: Request) => Promise<Response>;
 export function createHandler(registry: Registry, overrides: SaydoOptions = {}): SaydoHandler {
   const options: SaydoOptions = { ...registry.config, ...overrides };
   const dev = process.env.NODE_ENV !== 'production';
-  const limited = options.rateLimit === false ? () => false : createRateLimiter(options.rateLimit ?? 30);
+  const counters = options.limits ?? memoryLimitStore();
+  const limited = options.rateLimit === false ? async () => false : createRateLimiter(counters, options.rateLimit ?? 30);
+  // Per instance on purpose: each instance stops calling a failing provider on its own evidence.
   const breaker = createCircuitBreaker();
-  const budget = options.budget ? createBudget(options.budget) : undefined;
+  const budget = options.budget ? createBudget(counters, options.budget) : undefined;
   const staticTools = (options.tools ?? []).filter((t): t is Capability => !isToolSource(t));
   const sources = (options.tools ?? []).filter(isToolSource);
   const sourceNames = sources.map((s) => s.name);
   const allCapabilities = [...registry.capabilities, ...(options.capabilities ?? []), ...staticTools];
   let runtime: Promise<Runtime | { error: Omit<TurnError, 'ok'> }> | undefined;
-  let warnedAnonymous = false;
 
   // Next evaluates route modules during `next build`: the moment to check the lockfile.
   if (process.env.NEXT_PHASE === 'phase-production-build') {
     syncLockfile(allCapabilities, registry.routes, options.lockfile, process.env.CI ? 'verify' : 'update', sourceNames);
   }
 
-  const getUser = async (request: Request): Promise<SaydoUser | null> => {
-    if (options.getUser) return (await options.getUser(request)) ?? null;
-    return { id: 'anonymous' };
+  /**
+   * The user for this request. Without getUser, each browser gets its own signed visitor
+   * identity, so anonymous visitors never share approvals, conversations or rate limits.
+   */
+  const resolveUser = async (request: Request, secret: string): Promise<{ user: SaydoUser | null; setCookie?: string }> => {
+    if (options.getUser) return { user: (await options.getUser(request)) ?? null };
+    const existing = readCookie(request, VISITOR_COOKIE);
+    const known = existing ? await unseal<{ v: string; id: string }>(existing, secret) : null;
+    if (known?.v === 'visitor' && typeof known.id === 'string') return { user: { id: known.id, anonymous: true } };
+    const id = `visitor:${crypto.randomUUID()}`;
+    const secure = new URL(request.url).protocol === 'https:';
+    const token = await seal({ v: 'visitor', id }, secret);
+    return {
+      user: { id, anonymous: true },
+      setCookie: `${VISITOR_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure ? '; Secure' : ''}`,
+    };
   };
 
   // Lazy (and cached) so configuration problems surface as responses with a fix instead of breaking the build.
@@ -304,6 +298,16 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
       };
     }
     const gated = allCapabilities.some((c) => c.resolvedRisk !== 'read');
+    if (!dev && !options.getUser && !options.anonymous && (options.threads || allCapabilities.some((c) => c.kind === 'server' && c.resolvedRisk !== 'read' && c.resolvedRisk !== 'never'))) {
+      return {
+        error: {
+          status: 'error',
+          message: 'No getUser is configured, so the assistant cannot tell users apart.',
+          fix: 'Set `getUser` in saydo.config.ts (your auth). For a public app without sign-in, set `anonymous: true`: each browser then gets its own isolated identity.',
+          code: 'no_user',
+        },
+      };
+    }
     let store: GrantStore;
     if (options.store && options.store !== 'memory') store = options.store;
     else if (options.store === 'memory' || dev || !gated) {
@@ -355,7 +359,7 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
       record: options.record,
       deploymentId: options.deploymentId ?? process.env.VERCEL_DEPLOYMENT_ID ?? process.env.NEXT_DEPLOYMENT_ID,
       onUsage: (entry) => {
-        budget?.countTokens(entry.userId, entry.inputTokens + entry.outputTokens);
+        budget?.countTokens(entry.userId, entry.inputTokens + entry.outputTokens).catch((error) => console.error('[saydo] budget store failed', error));
         options.onUsage?.(entry);
       },
       routes: registry.routes,
@@ -367,7 +371,7 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
       maxSteps: options.maxSteps,
       audit: options.audit,
     });
-    const ready: Runtime = { engine, getUser, store, secret };
+    const ready: Runtime = { engine, getUser: async (request) => (await resolveUser(request, secret)).user, resolveUser: (request) => resolveUser(request, secret), store, secret };
     g[RUNTIME_KEY] = ready; // shared with withGrant() in other route bundles
     return ready;
   }
@@ -380,24 +384,34 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
     if (!(request.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
       return problem(415, { status: 'invalid_args', message: 'Expected application/json.', fix: 'Send JSON with content-type: application/json.' });
     }
-    if (Number(request.headers.get('content-length') ?? 0) > 256_000) {
-      return problem(413, { status: 'invalid_args', message: 'Request too large.', fix: 'Send a shorter message.' });
-    }
+    // Enforced on the bytes read, not on the (optional, forgeable) content-length header.
+    const text = await readCapped(request, 256_000);
+    if (text === null) return problem(413, { status: 'invalid_args', message: 'Request too large.', fix: 'Send a shorter message.' });
     let body: { type?: string } & Record<string, unknown>;
     try {
-      body = await request.json();
+      body = JSON.parse(text);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not an object');
     } catch {
       return problem(400, { status: 'invalid_args', message: 'Expected a JSON body.', fix: 'Send JSON.' });
     }
     const ready = await init();
     if ('error' in ready) return problem(500, ready.error);
 
-    const user = await ready.getUser(request);
+    const { user, setCookie } = await ready.resolveUser(request);
     if (!user) return problem(401, { status: 'forbidden', message: 'Sign in to use the assistant.', fix: 'Sign in.' });
-    if (!options.getUser && !warnedAnonymous && allCapabilities.some((c) => c.resolvedRisk !== 'read')) {
-      warnedAnonymous = true;
-      console.warn('[saydo] Gated capabilities exist but no getUser is configured; every request runs as "anonymous". Set getUser in saydo.config.ts.');
-    }
+    const response = await respond(ready, user, body, request, limitKeys(user, request));
+    if (setCookie) response.headers.append('set-cookie', setCookie);
+    return response;
+  };
+
+  /** Signed-out visitors are also limited per client IP, so dropping the cookie does not reset limits. */
+  function limitKeys(user: SaydoUser, request: Request): string[] {
+    if (options.getUser || user.anonymous !== true) return [user.id];
+    const ip = clientIp(request);
+    return ip ? [user.id, `ip:${ip}`] : [user.id];
+  }
+
+  async function respond(ready: Runtime, user: SaydoUser, body: { type?: string } & Record<string, unknown>, request: Request, keys: string[]): Promise<Response> {
 
     if (body.type === 'manifest') return json(await ready.engine.manifest(user));
     if (body.type === 'inspect') {
@@ -409,7 +423,7 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
         ...(await ready.engine.inspect(user, (body.client ?? {}) as never)),
       });
     }
-    if (limited(user.id)) {
+    if ((await Promise.all(keys.map((key) => limited(key)))).some(Boolean)) {
       return problem(429, { status: 'error', message: 'Too many assistant requests.', fix: 'Wait a minute and try again.' });
     }
     if (typeof body.type === 'string' && body.type.startsWith('passkey-')) return passkeys(ready, user, body, request);
@@ -437,7 +451,7 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
         }),
       );
     }
-    if (budget?.exceeded(user.id)) {
+    if (budget && (await Promise.all(keys.map((key) => budget.exceeded(key)))).some(Boolean)) {
       return problem(429, { status: 'error', message: 'Daily assistant limit reached.', fix: 'Try again tomorrow, or use the app directly.', code: 'budget' });
     }
     if (body.type === 'message' && breaker.open()) {
@@ -448,16 +462,82 @@ export function createHandler(registry: Registry, overrides: SaydoOptions = {}):
         code: 'planner_unavailable',
       });
     }
-    budget?.countRequest(user.id);
+    if (budget) await Promise.all(keys.map((key) => budget.countRequest(key)));
     if (body.type === 'invoke') {
       // In-page browser agents (WebMCP): same policy; gated calls show the normal confirm card.
       return json(await ready.engine.invoke(user, { tool: String(body.tool ?? ''), args: body.args, origin: 'browser-agent', request }));
+    }
+    if (body.stream === true && (body.type === 'message' || body.type === 'approve' || body.type === 'receipt')) {
+      // Newline-delimited JSON: {"type":"text","text":…} while the model writes, then one {"type":"result",…}.
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (event: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          let result: TurnResult;
+          try {
+            result = await ready.engine.handle(body as never, user, { request, onText: (text) => send({ type: 'text', text }) });
+          } catch (error) {
+            console.error('[saydo] request failed', error);
+            result = { ok: false, status: 'error', message: 'The assistant failed to process this request.', fix: 'Try again.' };
+          }
+          breaker.record(!result.ok && result.code === 'planner_unavailable');
+          send({ type: 'result', result });
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' },
+      });
     }
     const result = await ready.engine.handle(body as never, user, { request });
     breaker.record(!result.ok && result.code === 'planner_unavailable');
     return json(result);
   };
   return Object.assign(POST, { [RUNTIME_INIT]: init, [HANDLER_OPTIONS]: options, [HANDLER_LIMITS]: { limited, budget } });
+}
+
+const VISITOR_COOKIE = 'saydo_visitor';
+
+/** The client IP from a trusted source: saydo/node's socket address, else the platform proxy (Vercel, Cloudflare, Netlify). */
+function clientIp(request: Request): string | undefined {
+  const trusted = (globalThis as Record<symbol, WeakMap<Request, string> | undefined>)[Symbol.for('saydo.client-ip')]?.get(request);
+  const h = request.headers;
+  const ip = trusted || h.get('cf-connecting-ip') || h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip');
+  return ip ? ip.slice(0, 64) : undefined;
+}
+
+function readCookie(request: Request, name: string): string | undefined {
+  for (const part of (request.headers.get('cookie') ?? '').split(';')) {
+    const [key, ...rest] = part.trim().split('=');
+    if (key === name) return rest.join('=');
+  }
+  return undefined;
+}
+
+/** Read a request body, giving up (null) past `max` bytes. */
+async function readCapped(request: Request, max: number): Promise<string | null> {
+  if (Number(request.headers.get('content-length') ?? 0) > max) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /** Internal: lets the MCP handler share the main handler's engine and limits. */

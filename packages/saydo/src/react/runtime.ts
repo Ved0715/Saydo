@@ -53,6 +53,8 @@ export interface RuntimeSnapshot {
   offline: boolean;
   /** The current conversation, when conversations are stored on the server. */
   threadId?: string;
+  /** The reply as the model writes it (streaming); replaced by the final result. */
+  streaming?: string;
 }
 
 /** Dev-only view of what the model sees on this page. */
@@ -82,6 +84,8 @@ export interface RuntimeOptions {
   stepUp?: (challenge: StepUpChallenge) => Promise<unknown>;
   /** Refetch client caches after AI writes: `keys` from `invalidate(...)`, or undefined after any refresh. */
   onInvalidate?: (keys?: string[]) => void;
+  /** Show replies as the model writes them. Default true. */
+  stream?: boolean;
 }
 
 let itemSeq = 0;
@@ -90,6 +94,28 @@ const newRequestId = () =>
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 const nextId = () => `i${++itemSeq}`;
+
+/** Read an NDJSON turn stream: text events go to `onText`; the final result is returned. */
+async function readStream(body: ReadableStream<Uint8Array>, onText: (delta: string) => void): Promise<unknown> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: !done });
+    let newline: number;
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      const event = JSON.parse(line) as { type: string; text?: string; result?: unknown };
+      if (event.type === 'text' && typeof event.text === 'string') onText(event.text);
+      else if (event.type === 'result') return event.result;
+    }
+    if (done) break;
+  }
+  throw new Error('The response ended before the result.');
+}
 
 function getTabId(): string {
   const random = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -146,6 +172,7 @@ export class SaydoRuntime {
   private controller?: AbortController;
   private pageRefs = new Map<string, Element>();
   private agentWaiters = new Map<string, (result: InvokeResult) => void>();
+  private generation = 0;
   readonly tabId: string;
 
   constructor(private readonly options: RuntimeOptions) {
@@ -383,8 +410,9 @@ export class SaydoRuntime {
   }
 
   reset() {
+    this.generation++; // results of requests still in flight belong to the old conversation
     this.state = undefined;
-    this.set({ items: [], confirm: undefined, confirmError: undefined, threadId: undefined });
+    this.set({ items: [], confirm: undefined, confirmError: undefined, threadId: undefined, streaming: undefined });
   }
 
   /** Earlier conversations (when the app stores them on the server). */
@@ -424,22 +452,35 @@ export class SaydoRuntime {
     this.set({ busy: true, confirm: undefined, confirmError: undefined });
     try {
       // The same requestId on a retry lets the server return the stored result instead of running twice.
-      const result = (await this.post({ ...body, requestId: newRequestId() })) as TurnResult | null;
+      const stream = this.options.stream !== false;
+      const generation = this.generation;
+      const onText = stream
+        ? (delta: string) => {
+            if (generation === this.generation) this.set({ streaming: (this.snapshot.streaming ?? '') + delta });
+          }
+        : undefined;
+      const result = (await this.post({ ...body, requestId: newRequestId(), ...(stream ? { stream: true } : {}) }, true, onText)) as TurnResult | null;
+      this.set({ streaming: undefined });
+      if (generation !== this.generation) return; // the user started a new conversation meanwhile
       if (result) await this.handle(result, restoreConfirm);
       else if (restoreConfirm) this.set({ confirm: restoreConfirm });
     } finally {
-      this.set({ busy: false });
+      this.set({ busy: false, streaming: undefined });
     }
   }
 
-  private async post(body: unknown, report = true): Promise<unknown> {
+  private async post(body: unknown, report = true, onText?: (delta: string) => void): Promise<unknown> {
     const attempt = async () => {
+      if (onText) this.set({ streaming: undefined });
       const response = await (this.options.fetch ?? fetch)(this.options.endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
         credentials: 'same-origin',
       });
+      if (onText && response.body && (response.headers.get('content-type') ?? '').includes('application/x-ndjson')) {
+        return readStream(response.body, onText);
+      }
       const data = await response.json().catch(() => null);
       if (!data) throw new Error(`Unexpected response (${response.status})`);
       return data;

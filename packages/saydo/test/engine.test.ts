@@ -205,10 +205,12 @@ describe('sealed state', () => {
   it('rejects tampered state', async () => {
     const { engine } = setup([say('hi'), say('again')]);
     const res = ok(await engine.handle(message('hi'), alice));
-    const [body, sig] = res.state.split('.');
-    const decoded = JSON.parse(Buffer.from(body!, 'base64url').toString());
-    decoded.handles['post#1'] = { type: 'post', id: 'p3' };
-    const forged = `${Buffer.from(JSON.stringify(decoded)).toString('base64url')}.${sig}`;
+    // Encrypted: the browser cannot read the history, handles or results.
+    expect(res.state.startsWith('v2.')).toBe(true);
+    const bytes = Buffer.from(res.state.slice(3), 'base64url');
+    expect(bytes.toString('latin1')).not.toMatch(/handles|history|hi/);
+    bytes[20]! ^= 1;
+    const forged = `v2.${bytes.toString('base64url')}`;
     expect(await engine.handle(message('again', forged), alice)).toMatchObject({ ok: false, status: 'error' });
   });
 

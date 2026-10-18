@@ -100,8 +100,10 @@ jobs:
           saydo_tgz="$(ls "$root"/packages/saydo/saydo-*.tgz)"
           create_tgz="$(ls "$root"/packages/create-saydo-app/create-saydo-app-*.tgz)"
           work="$(mktemp -d)"
+          cp "$saydo_tgz" "$create_tgz" "$work/"
           cd "$work"
           for template in next vite; do
-            npx --yes "$create_tgz" "app-$template" --template "$template" --yes
-            (cd "app-$template" && npm install "$saydo_tgz" && npm install && npm run build)
+            # A relative ./ path: npx treats an absolute path as a command to execute.
+            npx --yes "./$(basename "$create_tgz")" "app-$template" --template "$template" --yes
+            (cd "app-$template" && npm install "../$(basename "$saydo_tgz")" && npm install && CI=true npm run build)
           done

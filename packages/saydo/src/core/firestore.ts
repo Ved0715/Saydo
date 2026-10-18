@@ -178,7 +178,8 @@ export function firestoreThreadStore(db: FirestoreLike, options: { collection?: 
       const batch = db.batch();
       for (const entry of entries) {
         counter = (counter + 1) % 1000;
-        batch.set(target.doc(), { seq: entry.at * 1000 + counter, userId, entry: JSON.stringify(entry), expireAt: new Date(expiresAt) });
+        // The engine numbers entries per conversation; the timestamp form is only for other callers.
+        batch.set(target.doc(), { seq: entry.seq ?? entry.at * 1000 + counter, userId, entry: JSON.stringify(entry), expireAt: new Date(expiresAt) });
       }
       await batch.commit();
     },

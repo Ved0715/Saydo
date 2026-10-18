@@ -36,6 +36,8 @@ export interface SaydoProviderProps {
    *   onInvalidate={(keys) => queryClient.invalidateQueries(keys ? { queryKey: keys } : undefined)}
    */
   onInvalidate?: (keys?: string[]) => void;
+  /** Show replies as the model writes them. Default true. */
+  stream?: boolean;
 }
 
 export function SaydoProvider({
@@ -50,6 +52,7 @@ export function SaydoProvider({
   stepUp,
   agents = false,
   onInvalidate,
+  stream = true,
 }: SaydoProviderProps) {
   const invalidateRef = useRef(onInvalidate);
   useEffect(() => {
@@ -74,6 +77,7 @@ export function SaydoProvider({
         messages: { offline: text.offline, guardBlocked: text.guardBlocked },
         stepUp,
         onInvalidate: (keys) => invalidateRef.current?.(keys),
+        stream,
       }),
   );
 

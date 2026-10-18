@@ -38,8 +38,18 @@ export function registerWebMcpTools(runtime: SaydoRuntime, tools: AgentTool[]): 
   for (const tool of tools) {
     if (names.has(tool.name)) continue;
     names.add(tool.name);
+    const failed = (error: unknown) => {
+      names.delete(tool.name);
+      const blocked = (error as { name?: string })?.name === 'NotAllowedError';
+      console.warn(
+        blocked
+          ? `[saydo] The page's Permissions-Policy blocks WebMCP, so "${tool.name}" was not registered (fix: pass agents: true to withSaydo() or the Vite plugin).`
+          : `[saydo] Could not register WebMCP tool ${tool.name}`,
+        error,
+      );
+    };
     try {
-      context.registerTool(
+      const registration = context.registerTool(
         {
           name: tool.name,
           title: tool.title,
@@ -53,10 +63,11 @@ export function registerWebMcpTools(runtime: SaydoRuntime, tools: AgentTool[]): 
         },
         { signal: controller.signal },
       );
+      // The spec's registerTool returns a promise that rejects when the policy disallows it.
+      if (registration && typeof (registration as Promise<unknown>).then === 'function') (registration as Promise<unknown>).catch(failed);
       controller.signal.addEventListener('abort', () => names.delete(tool.name), { once: true });
     } catch (error) {
-      names.delete(tool.name);
-      console.warn(`[saydo] Could not register WebMCP tool ${tool.name}`, error);
+      failed(error);
     }
   }
   return () => controller.abort();
