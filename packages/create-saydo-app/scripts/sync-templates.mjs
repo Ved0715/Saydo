@@ -1,4 +1,4 @@
-// Copies the example apps into templates/, swapping workspace links for published versions.
+// Copies the starter apps into templates/, swapping workspace links for published versions.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,7 @@ function copy(from, to) {
   }
 }
 
-for (const [template, example] of [['next', 'next-demo'], ['vite', 'vite-demo']]) {
+for (const [template, example] of [['next', 'next-starter'], ['vite', 'vite-starter']]) {
   const out = path.join(here, '..', 'templates', template);
   fs.rmSync(out, { recursive: true, force: true });
   copy(path.join(repo, 'examples', example), out);

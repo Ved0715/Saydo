@@ -10,4 +10,4 @@ const port = Number(process.env.PORT ?? 4173);
 
 http
   .createServer((req, res) => (req.method === 'POST' && req.url?.startsWith('/api/saydo') ? api(req, res) : files(req, res)))
-  .listen(port, () => console.log(`Saydo React demo on http://localhost:${port}`));
+  .listen(port, () => console.log(`App on http://localhost:${port}`));

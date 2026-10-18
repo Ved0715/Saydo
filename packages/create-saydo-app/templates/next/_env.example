@@ -1,4 +1,4 @@
-# Optional: use a real model. Without it the demo runs on the deterministic mock planner.
+# Optional: use a real model. Without it the app runs on the deterministic mock planner.
 ANTHROPIC_API_KEY=
 # Required for `next start` (production). Dev generates one automatically.
 SAYDO_SECRET=

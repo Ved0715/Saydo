@@ -1,7 +1,0 @@
-[
-  { "say": "take me to billing", "expect": "nav_goto" },
-  { "say": "start a new post titled Launch Notes", "route": "/billing", "expect": "posts.create" },
-  { "say": "delete this post", "route": "/posts/p1", "expect": "posts.delete" },
-  { "say": "publish this post", "route": "/posts/p2", "expect": "posts.publish" },
-  { "say": "how many posts do I have", "expect": "posts.count" }
-]

@@ -1,4 +1,0 @@
-[
-  { "say": "take me to settings", "expect": "nav_goto" },
-  { "say": "send feedback saying the new palette is great", "route": "/feedback", "expect": "feedback" }
-]

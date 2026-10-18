@@ -1,29 +1,37 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { SaydoProvider } from 'saydo-js/next/client';
+import { APP_NAME } from '@/lib/app-name';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Acme Posts · saydo demo',
-  description: 'Every page is navigable by the assistant; actions are declared and gated.',
+  title: APP_NAME,
+  description: 'An AI-native Next.js app built with Saydo.',
 };
 
-// Day 1, step 2 of 3: one provider in the root layout.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: dark)', color: '#000000' },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+  ],
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
+        {/* One provider: every page becomes something users can ask about and act on. */}
         <SaydoProvider>
           <header className="topbar">
-            <Link href="/" className="brand">
-              Acme Posts
-            </Link>
-            <nav aria-label="Main">
-              <Link href="/posts">Posts</Link>
-              <Link href="/billing">Billing</Link>
-              <Link href="/settings">Settings</Link>
-            </nav>
+            <div className="topbar-inner">
+              <a href="/" className="brand">
+                <span className="brand-mark" aria-hidden="true" />
+                {APP_NAME}
+              </a>
+              <a href="https://github.com/Ved0715/Saydo" className="ask">
+                GitHub
+              </a>
+            </div>
           </header>
           <main>{children}</main>
         </SaydoProvider>

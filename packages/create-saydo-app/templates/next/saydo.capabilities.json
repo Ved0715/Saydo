@@ -1,24 +1,7 @@
 {
   "lockfileVersion": 1,
-  "capabilities": {
-    "account.delete": {"risk":"never","kind":"server","version":1,"expose":["assistant"]},
-    "posts.archive": {"risk":"reversible","kind":"server","version":1,"expose":["assistant"]},
-    "posts.count": {"risk":"read","kind":"server","version":1,"expose":["assistant"]},
-    "posts.create": {"risk":"write","kind":"server","version":1,"expose":["assistant"]},
-    "posts.delete": {"risk":"destructive","kind":"server","version":1,"expose":["assistant"]},
-    "posts.publish": {"risk":"write","kind":"client","version":1,"expose":["assistant"]},
-    "updateSettings": {"risk":"write","kind":"server","version":1,"expose":["assistant"]}
-  },
+  "capabilities": {},
   "routes": [
-    "/",
-    "/admin (restricted)",
-    "/billing",
-    "/posts",
-    "/posts/[id]",
-    "/posts/new",
-    "/settings"
-  ],
-  "sources": [
-    "tools:convertCurrency"
+    "/"
   ]
 }

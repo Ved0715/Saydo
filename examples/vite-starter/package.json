@@ -1,0 +1,27 @@
+{
+  "name": "vite-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && vite build --ssr server.ts --outDir dist-server",
+    "start": "node dist-server/server.js"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.82",
+    "ai": "7.0.143",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router": "8.4.0",
+    "saydo-js": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}

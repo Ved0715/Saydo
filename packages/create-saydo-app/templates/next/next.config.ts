@@ -1,4 +1,4 @@
 import { withSaydo } from 'saydo-js/next';
 
-// Day 1, step 1 of 3: scans app/ and capabilities/ and wires the registry.
+// Scans app/ and capabilities/ and wires everything the assistant can use.
 export default withSaydo({});

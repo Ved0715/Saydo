@@ -39,7 +39,7 @@ Useful while working:
 | `pnpm vitest run packages/saydo/test/engine.test.ts` | One file. Add `-t "name"` for one test. |
 | `pnpm typecheck` | Types only, fast. |
 | `pnpm build` | Builds `packages/saydo/dist` (esbuild, then `.d.ts`). |
-| `pnpm templates` | Copies the examples into the `create-saydo-app` templates. Run it after changing an example. |
+| `pnpm templates` | Copies the starters (`examples/*-starter`) into the `create-saydo-app` templates. Run it after changing a starter. |
 | `pnpm test:firestore` | Store contract tests against the real Firestore emulator (needs Java). CI runs these on every push. |
 
 The Redis contract tests start a throwaway `redis-server` when one is installed (`brew install redis`, `apt install redis-server`) and are skipped otherwise. CI always runs them.
@@ -73,9 +73,11 @@ packages/saydo/            the framework, published to npm as "saydo-js"
   src/cli/                 npx saydo: init, ask, inspect, doctor, eval, …
   src/*.ts                 one file per public entry point (saydo-js, saydo-js/server, …)
   test/                    vitest suites (see Tests)
-packages/create-saydo-app/ npx create-saydo-app; templates/ are generated from examples/
-examples/next-demo/        Next.js App Router example (also the "next" template)
-examples/vite-demo/        Vite + React Router example (also the "vite" template)
+packages/create-saydo-app/ npx create-saydo-app; templates/ are generated from the starters
+examples/next-starter/     the "next" template: one page explaining Saydo and how to set it up
+examples/vite-starter/     the "vite" template, the same for Vite + React Router
+examples/next-demo/        Next.js App Router demo that exercises most features
+examples/vite-demo/        Vite + React Router demo
 site/                      the website, a Next.js app built with Saydo
 SPEC.md                    the protocol; README.md the user docs; plan/ the design notes
 ```

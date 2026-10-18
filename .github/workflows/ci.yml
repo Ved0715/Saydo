@@ -86,6 +86,10 @@ jobs:
         run: pnpm --filter vite-demo build
         env:
           CI: 'true'
+      - name: Starters (the create-saydo-app templates)
+        run: pnpm --filter next-starter build && pnpm --filter vite-starter build
+        env:
+          CI: 'true'
       - name: Website (built with Saydo)
         run: pnpm --filter saydo-site build
         env:

@@ -3,6 +3,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { defineConfig } from 'saydo-js/config';
 import { aiTools, memoryThreadStore, mockPlanner } from 'saydo-js/server';
+import { APP_NAME } from '@/lib/app-name';
 import { getUser } from '@/lib/auth';
 
 // Any AI SDK tool (or MCP server, OpenAPI spec, tRPC router) can be plugged in.
@@ -27,7 +28,7 @@ export default defineConfig({
 
   // What the assistant knows about the app ("how do I…" answers come from here and from your pages and actions).
   knowledge: {
-    name: 'Acme Posts',
+    name: APP_NAME,
     about: 'A small blog editor: draft, publish and archive posts, and manage billing and settings.',
     docs: [{ title: 'Publishing', text: 'Open a post and press Publish. Published posts are public at once.', keywords: ['go live', 'make public'] }],
   },
